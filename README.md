@@ -19,7 +19,7 @@ plugin; works with any agent herdr detects.
 herdr plugin install aristeoibarra/herdr-pointr
 ```
 
-Needs herdr 0.9.0+, Node 20+ and Linux or macOS. Nothing to install in the browser.
+Needs herdr 0.9.0+ on Linux or macOS — nothing else, and nothing in the browser.
 
 ## Use
 
@@ -73,7 +73,7 @@ find the file. For exact locations, mount
 
 ```bash
 git clone https://github.com/aristeoibarra/herdr-pointr && cd herdr-pointr
-npm install && npm run build   # `herdr plugin link` does not build
+npm install && npm run build   # needs Go and Node; `herdr plugin link` does not build
 herdr plugin link .
 ```
 
