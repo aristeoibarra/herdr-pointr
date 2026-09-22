@@ -77,7 +77,7 @@ style. `verbatimModuleSyntax` is on, so use `import type` for type-only imports.
 
 Zero per-project config, tolerant of panes that come and go. Order:
 
-1. **Per-tab override** from the extension popup, then the **pinned agent** from config — each only
+1. **Per-tab override** from the widget's settings, then the **pinned agent** from config — each only
    if that pane still exists.
 2. **port → cwd → agent** — parse the dev-server port from the page URL, find the process listening
    on it, take its cwd, and match the agent working there. A proxy port is first translated back to
@@ -164,12 +164,15 @@ names. Exact `file:line` is only available if a project opts into a `data-source
 
 ## Widget delivery & config
 
-- Four ways to load the widget, all hitting the same `/widget.js`. The default is the **injection
-  proxy** (`src/proxy.ts`): `pointr open 3000`, a ctrl-clicked link, or `GET /open?url=` serve the
-  dev server on port + 10000 with the widget's `<script>` first in `<head>` of each navigation.
-  Then the **browser extension** (`extension/`, MV3 content script, auto-injects on
-  `localhost`/`127.0.0.1`, skips port 7331), the **bookmarklet** (`src/bookmarklet.ts`, served at
-  `/`), or mounting `examples/Pointr.tsx` from a project.
+- Three ways to load the widget, all hitting the same `/widget.js`. The default is the **injection
+  proxy** (`src/proxy.ts`): the setup page's Open button, `pointr open 3000`, a ctrl-clicked link,
+  or `GET /open?url=` serve the dev server on port + 10000 with the widget's `<script>` first in
+  `<head>` of each navigation. Then the **bookmarklet** (`src/bookmarklet.ts`, served at `/`), for
+  keeping the app's own URL, or mounting `examples/Pointr.tsx` from a project.
+- There was a Chrome extension; it was removed in 2.0.0 once the proxy covered its one job
+  (injecting before the app's code). Don't bring it back to solve the origin change: the
+  bookmarklet and `Pointr.tsx` already keep the app's URL, without a second codebase in a second
+  JS world.
 - The proxy touches **only** top-level navigations (`Sec-Fetch-Dest: document`) that return HTML:
   those are requested uncompressed, decoded if the server compresses anyway, get the tag
   spliced in at byte level (searched as latin1, so the page's encoding is never re-encoded) and
@@ -192,47 +195,21 @@ names. Exact `file:line` is only available if a project opts into a `data-source
   be configured rather than inherited.
 - The server is intentionally permissive (CORS `*`, accepts any local origin) — it's localhost-only
   dev tooling. Don't add auth/origin checks expecting production hardening; that's out of scope.
-- `extension/` is hand-written JS, not a build target: `content.js`/`popup.js` are loaded verbatim by
-  MV3 and so are outside `tsconfig`/tsup. Keep them small and plain; anything that wants types
-  belongs in `client/`.
-- **Icons**: `extension/icons/icon.svg` is the source; the four committed PNGs are rasterized from it
-  (regenerate by hand with `npx @resvg/resvg-js` or any SVG rasterizer — ImageMagick's built-in MSVG
-  renderer drops the gradient and every `stroke`). Its geometry is deliberately a multiple of 8 on a
-  128 grid so it lands on whole pixels at 16px, the size the toolbar actually renders.
 
 ## Settings live in the widget
 
-The gear in the panel header opens them; the extension popup is a health
-indicator and nothing else. It used to be the other way round, and the reason
-for moving was not only "one place instead of two": loaded by bookmarklet or by
-mounting `examples/Pointr.tsx`, there is no popup at all, so those paths had no
-settings UI whatsoever.
+The gear in the panel header opens them. Three settings: the destination agent,
+send-on-click, and the selection shortcut. They live in the page's
+`localStorage` (`pointr-prefs`), written on every change.
 
-- Three settings: the destination agent (per origin), send-on-click, and the
-  selection shortcut.
-- The widget runs in the page's **MAIN world** (it's a `<script src>`), so it
-  cannot touch `chrome.storage` directly. `window.postMessage` is the only
-  channel to `content.js`. Protocol: widget → `prefs:get`, `prefs:set`,
-  `pin:clear`; extension → `prefs`.
-- `content.js` splits a `prefs:set` back into scopes on write exactly as it
-  joins them on read: `global` (`autoSend`, `hotkey`) and `agent:<origin>`
-  (`{id, session, label}`). Splitting them is the point — nobody wants to
-  re-record the shortcut per project, and nobody wants a destination chosen on
-  one site to follow them to another.
-- `content.js` re-pushes on `chrome.storage.onChanged`, so a change made in one
-  tab lands live in every other open tab. The widget never answers a `prefs`
-  push with a `prefs:set`, which is what keeps that from looping.
+- `localStorage` is per origin, and origin includes the port, so every setting
+  is per app — including the shortcut. A destination chosen for one app not
+  following you to another is the point; re-recording a custom shortcut per app
+  is the accepted cost of having nothing installed in the browser.
 - The stored destination label holds **only stable fields** (`project · kind`).
   It sits beside the pin so the widget can render a pinned destination while the
   bridge is unreachable; status changes by the second and is fetched live from
   `/agents`, never persisted.
-- Identifiers that must agree across the MAIN-world bundle and the isolated
-  content script (`pointr-root`, `pointr-widget`, `pointr-ext`) are **hardcoded
-  in both files** — there is no shared module between the two worlds. Change one
-  side only and injection or the prefs channel breaks silently.
-- Loaded without the extension, nothing answers `prefs:get` or `prefs:set` and
-  the widget keeps everything in its own `localStorage` (`pointr-prefs`), which
-  it writes on every change either way.
 
 ## Releasing
 
@@ -252,11 +229,15 @@ verified in herdr 0.9.1's `src/cli/plugin.rs`), which is what makes `git rev-par
 `REQUIRED` in `scripts/build.sh` lists the runtime files a bundle must contain; add a tsup output
 and it has to go there too, or a prebuilt install ships without it.
 
-`version` lives in three files — `package.json`, `extension/manifest.json` and `herdr-plugin.toml` —
-read by npm, Chrome and herdr's registry respectively. Drift breaks no build; it just ships a plugin
-whose manifest disagrees with its own package, which is invisible to whoever released it and
-confusing to whoever installed it. `src/version.test.ts` fails when they disagree, so bumping means
-bumping all three.
+`version` lives in two files — `package.json` and `herdr-plugin.toml` — read by npm and herdr's
+registry respectively. Drift breaks no build; it just ships a plugin whose manifest disagrees with
+its own package, which is invisible to whoever released it and confusing to whoever installed it.
+`src/version.test.ts` fails when they disagree, so bumping means bumping both.
+
+Cutting a release: bump both, commit `chore: release vX.Y.Z`,
+tag `vX.Y.Z` on that commit, push `main` and the tag, then `gh release create vX.Y.Z` with notes written
+for users (what changed for them, not the commit list). Pushing the tag is what keeps that commit's prebuilt bundle past the
+prune, so `herdr plugin install … --ref vX.Y.Z` stays fast indefinitely.
 
 ## Conventions
 
