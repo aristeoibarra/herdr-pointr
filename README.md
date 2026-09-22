@@ -1,5 +1,9 @@
 # pointr
 
+[![herdr](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Faristeoibarra%2Fherdr-pointr%2Fmain%2Fherdr-plugin.toml&query=%24.min_herdr_version&prefix=%3E%3D%20&label=herdr&color=d97757)](https://herdr.dev)
+[![platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macos-555)](#requirements)
+[![license](https://img.shields.io/badge/license-MIT-555)](LICENSE)
+
 **Point at what's wrong in your browser. Fix it in the agent you already have open.**
 
 Click an element, say what should change, and it lands in the prompt of the coding agent
@@ -10,7 +14,7 @@ Nothing here drives your browser; context flows one way, from your eyes to the a
 A [herdr](https://herdr.dev) plugin. Agent-agnostic: herdr recognises two dozen coding
 agents, and pointr talks to whichever one owns the project you're looking at.
 
-![The widget open on a dev app: a ProfileCard outlined in the page, and the panel showing the resolved component, its ancestry, the typed request and the screenshot toggle](docs/panel.png)
+![The widget open on a dev app: a ProfileCard outlined in the page, and the panel showing the resolved destination, the component and its ancestry, the typed request, the screenshot toggle and the gear that opens settings](docs/panel.png)
 
 ## How it works
 
@@ -96,6 +100,13 @@ the toolbar popup: those two paths have no popup.
 
 You can also pin from herdr itself: `pointr: send here` acts on the focused
 pane, and `pointr: choose a destination` opens a picker.
+
+### Ctrl-click a localhost URL
+
+When an agent prints `http://localhost:3000` in its pane, Ctrl-click it (Control on
+macOS too — terminal mouse reports cannot tell Cmd from a plain click) and herdr hands
+the URL to pointr instead of the browser's default handler. The page opens with the
+widget already injected.
 
 ## Daily use
 
