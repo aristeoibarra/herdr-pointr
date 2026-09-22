@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ownersForPort } from "./ports.ts";
+
 /**
  * Process lifecycle for the bridge.
  *
@@ -96,8 +98,12 @@ export async function start(port: number): Promise<number> {
   return 1;
 }
 
-export function stop(): number {
-  const pid = livePid();
+export async function stop(port: number): Promise<number> {
+  // The pidfile lives under the state directory herdr injects, so a daemon
+  // started as a plugin action and a `stop` typed by hand outside herdr do not
+  // see the same file. Falling back to whoever holds the port keeps the two
+  // from disagreeing about whether anything is running.
+  const pid = livePid() ?? (await answering(port) ? await listenerPid(port) : null);
   if (pid === null) {
     rmSync(pidFile(), { force: true });
     process.stdout.write("pointr is not running\n");
@@ -108,7 +114,12 @@ export function stop(): number {
     // server was spawned detached.
     process.kill(-pid, "SIGTERM");
   } catch {
-    process.kill(pid, "SIGTERM");
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      process.stderr.write(`could not signal pid ${pid}\n`);
+      return 1;
+    }
   }
   rmSync(pidFile(), { force: true });
   process.stdout.write(`stopped pointr (pid ${pid})\n`);
@@ -116,12 +127,21 @@ export function stop(): number {
 }
 
 /**
+ * Who is listening on our port. Only trusted after /health has answered, which
+ * no other process on this port would do.
+ */
+async function listenerPid(port: number): Promise<number | null> {
+  const owners = await ownersForPort(String(port));
+  return owners[0]?.pid ?? null;
+}
+
+/**
  * Always exits 0, including when down: herdr records a non-zero exit as a
  * failed action, and being switched off is not a failure.
  */
 export async function status(port: number): Promise<number> {
-  const pid = livePid();
   const up = await answering(port);
+  const pid = livePid() ?? (up ? await listenerPid(port) : null);
   process.stdout.write(
     `${up ? "running" : "down"} http://localhost:${port}${pid === null ? "" : ` (pid ${pid})`}\n`,
   );

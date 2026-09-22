@@ -21,7 +21,7 @@ async function main(): Promise<void> {
       process.exit(await daemonStart(config.port));
       return;
     case "stop":
-      process.exit(daemonStop());
+      process.exit(await daemonStop(config.port));
       return;
     case "status":
       process.exit(await daemonStatus(config.port));
