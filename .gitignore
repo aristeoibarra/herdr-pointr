@@ -1,5 +1,6 @@
 node_modules/
 dist/
+bridge/web/*.js
 *.log
 .DS_Store
 .env

@@ -1,21 +1,4 @@
-/** The page served at `/`: running dev servers to open, plus the bookmarklet. */
-
-export function bookmarkletCode(port: number): string {
-  return (
-    "javascript:(function(){var d=document;" +
-    "if(d.getElementById('pointr-root'))return;" +
-    "var s=d.createElement('script');" +
-    `s.src='http://localhost:${port}/widget.js';` +
-    "s.onerror=function(){alert('pointr: bridge not reachable on :" +
-    port +
-    "');};" +
-    "d.body.appendChild(s);})();"
-  );
-}
-
-export function bookmarkletPage(port: number): string {
-  const code = bookmarkletCode(port).replace(/"/g, "&quot;");
-  return `<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -52,7 +35,7 @@ export function bookmarkletPage(port: number): string {
 </head>
 <body>
   <h1>pointr</h1>
-  <p class="muted">Bridge on <code>localhost:${port}</code> <span id="st" class="status"></span></p>
+  <p class="muted">Bridge on <code>localhost:{{PORT}}</code> <span id="st" class="status"></span></p>
 
   <p><strong>Your dev servers.</strong> Open one and the widget is already in the page —
   <code>Alt+C</code>, click an element, describe the change.</p>
@@ -65,7 +48,7 @@ export function bookmarkletPage(port: number): string {
 
   <hr>
   <p class="muted">To keep your app's own URL instead, drag this to your bookmarks bar and
-  click it on the page: <a class="bm" href="${code}">◎ pointr</a></p>
+  click it on the page: <a class="bm" href="javascript:(function(){var d=document;if(d.getElementById('pointr-root'))return;var s=d.createElement('script');s.src='http://localhost:{{PORT}}/widget.js';s.onerror=function(){alert('pointr: bridge not reachable on :{{PORT}}');};d.body.appendChild(s);})();">◎ pointr</a></p>
 
 <script>
   const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -109,5 +92,4 @@ export function bookmarkletPage(port: number): string {
   document.addEventListener('visibilitychange', refresh);
 </script>
 </body>
-</html>`;
-}
+</html>
