@@ -1,0 +1,90 @@
+id = "aristeoibarra.pointr"
+name = "pointr"
+version = "1.0.0"
+# 0.9.0 is a real floor, not a round number. Two guarantees this plugin leans on
+# arrived late: agent.prompt began rejecting a blocked agent with `agent_blocked`
+# before writing any input in 0.8.2, and only in 0.9.0 did it guarantee the
+# prompt and Enter are both sent before it reports success. Without the first,
+# a send can type into an approval dialog; without the second, the bridge would
+# tell the browser "sent" without knowing that it was.
+min_herdr_version = "0.9.0"
+description = "Point at a DOM element on a localhost page; it lands in the coding agent that owns that project."
+# Routing reads the listening port's owner from procfs on Linux and lsof on
+# macOS. Windows has neither, so it is left out rather than half-working.
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["npm", "ci"]
+
+[[build]]
+command = ["npm", "run", "build"]
+
+# One-shot, per herdr start: brings the bridge up only if it is not already
+# answering. herdr startup hooks are not supervised, so the command detaches the
+# server itself and exits.
+[[startup]]
+command = ["sh", "scripts/pointr.sh", "start"]
+
+[[actions]]
+id = "start"
+title = "pointr: start the bridge"
+contexts = ["global"]
+command = ["sh", "scripts/pointr.sh", "start"]
+
+[[actions]]
+id = "stop"
+title = "pointr: stop the bridge"
+contexts = ["global"]
+command = ["sh", "scripts/pointr.sh", "stop"]
+
+[[actions]]
+id = "status"
+title = "pointr: bridge status"
+contexts = ["global"]
+command = ["sh", "scripts/pointr.sh", "status"]
+
+[[actions]]
+id = "doctor"
+title = "pointr: check herdr, port lookup and dictation"
+contexts = ["global"]
+command = ["sh", "scripts/pointr.sh", "doctor"]
+
+# Runs with the focused pane's context, so it pins whichever agent you are
+# looking at without naming it.
+[[actions]]
+id = "pin"
+title = "pointr: send here"
+description = "Pin the focused pane as the destination for browser selections"
+contexts = ["pane"]
+command = ["sh", "scripts/pointr.sh", "pin"]
+
+[[actions]]
+id = "unpin"
+title = "pointr: send anywhere"
+description = "Clear the pin and resolve the destination per page again"
+contexts = ["global"]
+command = ["sh", "scripts/pointr.sh", "pin", "--clear"]
+
+# The destination of the link handler below. Not a pane: the point is to land in
+# the browser, where the widget is waiting.
+[[actions]]
+id = "open"
+title = "pointr: open in the browser"
+contexts = ["global"]
+command = ["sh", "scripts/pointr.sh", "open"]
+
+[[panes]]
+id = "picker"
+title = "pointr: choose a destination"
+placement = "popup"
+width = "80%"
+height = 14
+command = ["sh", "scripts/pointr.sh", "pick"]
+
+# Ctrl-click the localhost URL an agent prints and the page opens with the
+# widget already injected, instead of the browser's plain handler.
+[[link_handlers]]
+id = "localhost"
+title = "Open with pointr"
+pattern = "^https?://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?(/.*)?$"
+action = "open"

@@ -1,7 +1,10 @@
 import { createServer } from "./server.ts";
+import { start as daemonStart, stop as daemonStop, status as daemonStatus } from "./daemon.ts";
 import { loadConfig, saveConfig, configFile, DEFAULT_PORT } from "./config.ts";
 import { listAgents, isAvailable, setSocketPath, socketPath } from "./herdr.ts";
 import { portStrategy } from "./ports.ts";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline/promises";
 import { shutdownWatchers } from "./watch.ts";
 import { dictationStatus } from "./transcribe.ts";
 
@@ -12,14 +15,28 @@ async function main(): Promise<void> {
 
   switch (command) {
     case "serve":
-    case "start":
       await serve(config, rest);
+      return;
+    case "start":
+      process.exit(await daemonStart(config.port));
+      return;
+    case "stop":
+      process.exit(daemonStop());
+      return;
+    case "status":
+      process.exit(await daemonStatus(config.port));
       return;
     case "agents":
       await printAgents();
       return;
     case "pin":
       await pin(rest);
+      return;
+    case "pick":
+      await pick();
+      return;
+    case "open":
+      openInBrowser(rest[0] ?? process.env.HERDR_PLUGIN_CLICKED_URL ?? null);
       return;
     case "doctor":
       await doctor();
@@ -103,6 +120,66 @@ async function pin(args: string[]): Promise<void> {
   log(`saved to ${configFile()}`);
 }
 
+/**
+ * Pick a destination from a list. Runs in a herdr popup pane, so it has a
+ * terminal and can just read a number — no picker dependency to install.
+ */
+async function pick(): Promise<void> {
+  const agents = await listAgents();
+  if (agents.length === 0) {
+    log("No agents open in herdr.");
+    await pause();
+    return;
+  }
+
+  log("Send browser selections to:\n");
+  log("  0) auto — resolve from the page's dev-server port");
+  agents.forEach((agent, index) => {
+    log(`  ${index + 1}) ${agent.paneId}  ${agent.kind}/${agent.status}  ${agent.cwd}`);
+  });
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await rl.question("\nnumber: ")).trim();
+  rl.close();
+
+  const choice = Number.parseInt(answer, 10);
+  const config = await loadConfig();
+  if (choice === 0) {
+    config.targetAgent = null;
+    await saveConfig(config);
+    log("cleared — routing resolves per page again.");
+  } else {
+    const agent = agents[choice - 1];
+    if (agent === undefined) {
+      log("Not a choice; nothing changed.");
+      await pause();
+      return;
+    }
+    config.targetAgent = { paneId: agent.paneId, session: agent.sessionId };
+    await saveConfig(config);
+    log(`pinned ${agent.paneId} (${agent.cwd})`);
+  }
+  await pause();
+}
+
+/** Let the result stay on screen before herdr tears the popup down. */
+function pause(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 1_200));
+}
+
+/**
+ * Open a URL in the user's browser. Wired to the manifest's link handler, so
+ * ctrl-clicking the localhost URL an agent printed lands on the page with the
+ * widget already injected.
+ */
+function openInBrowser(url: string | null): void {
+  if (url === null) fail("No URL to open.");
+  const opener = process.platform === "darwin" ? "open" : "xdg-open";
+  const child = spawn(opener, [url], { detached: true, stdio: "ignore" });
+  child.unref();
+  log(`opening ${url}`);
+}
+
 /** Everything the bridge needs, and whether it is actually there. */
 async function doctor(): Promise<void> {
   const herdr = await isAvailable();
@@ -127,9 +204,12 @@ function printHelp(): void {
       "Send selected browser elements into the coding agent that owns the project.",
       "",
       "Usage:",
-      "  serve [--port N] [--project PATH]  Run the bridge in the foreground (default :" + DEFAULT_PORT + ")",
+      "  start | stop | status              Manage the background bridge (default :" + DEFAULT_PORT + ")",
+      "  serve [--port N] [--project PATH]  Run it in the foreground instead",
       "  agents                             List the agents herdr can see",
       "  pin [w1:p1|--clear]                Pin/clear a destination agent (rarely needed)",
+      "  pick                               Choose a destination from a list",
+      "  open <url>                         Open a URL in the browser",
       "  doctor                             Check herdr, port lookup and dictation",
       "",
       "Routing is automatic: the page's dev-server port maps to the directory it",
