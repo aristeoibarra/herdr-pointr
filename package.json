@@ -9,7 +9,9 @@
   "scripts": {
     "build": "rm -rf dist && tsup",
     "dev": "tsx src/cli.ts serve",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "repository": {
     "type": "git",
@@ -31,7 +33,8 @@
     "modern-screenshot": "^4.7.0",
     "tsup": "^8.5.1",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=20"

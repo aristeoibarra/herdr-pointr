@@ -23,7 +23,8 @@ Open as many projects as you like at once — no pinning, no per-project config.
 Matching is tiered: exact directory, then nearest parent, then nearest child. When more
 than one agent fits equally it **asks instead of guessing**, and a directory that says
 nothing about which project it is — your home directory, say — is not treated as evidence
-at all.
+at all, on either side: a session sitting in `$HOME` contains every project you have, so
+it is never allowed to win a project by containment.
 
 After a send, the widget follows the agent's real state: working, finished, or waiting on
 an approval dialog it can't answer for you.

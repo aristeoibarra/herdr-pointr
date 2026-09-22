@@ -99,7 +99,11 @@ export function isInformativeProjectDir(dir: string): boolean {
  * Returning more than one agent means genuinely ambiguous. The caller asks;
  * it does not guess.
  */
-export function matchAgents(dir: string, agents: HerdrAgent[]): HerdrAgent[] {
+export function matchAgents(
+  dir: string,
+  agents: HerdrAgent[],
+  isProjectDir: (dir: string) => boolean = isInformativeProjectDir,
+): HerdrAgent[] {
   const target = normalize(dir);
   const located = agents.filter((agent) => agentDir(agent) !== null);
 
@@ -107,11 +111,17 @@ export function matchAgents(dir: string, agents: HerdrAgent[]): HerdrAgent[] {
   if (exact.length > 0) return exact;
 
   // The agent sits above the dev server: a monorepo agent at /repo with the
-  // server in /repo/apps/web. The *deepest* ancestor is the nearest one, which
-  // is what keeps an agent in $HOME from shadowing one in the project dir.
+  // server in /repo/apps/web. The *deepest* ancestor is the nearest one.
+  //
+  // The agent's own directory has to look like a project too. Containment
+  // alone is far too weak a claim here: an agent parked in $HOME contains
+  // every project on the machine, so it would win this tier for all of them
+  // and route each one's UI feedback to a session that has none of its code.
+  // Rejecting $HOME as evidence on the dev-server side while letting it win on
+  // the agent side was the same idea applied to only half the problem.
   const ancestors = located.filter((agent) => {
     const dirOf = agentDir(agent);
-    return dirOf !== null && dirOf !== target && isAncestor(dirOf, target);
+    return dirOf !== null && dirOf !== target && isAncestor(dirOf, target) && isProjectDir(dirOf);
   });
   if (ancestors.length > 0) {
     const deepest = Math.max(...ancestors.map((agent) => depth(agentDir(agent) ?? "")));

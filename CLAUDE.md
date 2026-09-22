@@ -15,11 +15,17 @@ detects 24 agent kinds, so nothing here is specific to Claude Code. Linux and ma
 ```bash
 npm run build      # tsup: produces dist/cli.js AND dist/widget.global.js
 npm run dev        # tsx src/cli.ts serve — runs the server from source, no build step
-npm run typecheck  # tsc --noEmit (the ONLY check — there are no tests and no linter)
+npm run typecheck  # tsc --noEmit
+npm test           # vitest run — src/routing.test.ts only
 ```
 
-There is no test runner and no ESLint/Prettier config. `npm run typecheck` is the gate before
-committing. Shell scripts go through `shellcheck`.
+There is no linter. `npm run typecheck && npm test` is the gate before committing, and shell
+scripts go through `shellcheck`.
+
+Tests cover `src/routing.ts` and nothing else, deliberately. Everything else in this repo fails
+loudly — a bad herdr call throws, a broken widget shows an error. Routing is the one place where
+being wrong is *invisible*: it does not fail, it delivers somewhere else. The cases in
+`src/routing.test.ts` are the shapes that actually misrouted.
 
 Runtime CLI (`dist/cli.js`, or `pointr` once installed): `start|stop|status` manage the background
 bridge, `serve` runs it in the foreground, `agents` lists what herdr can see, `pin`/`pick` choose a
@@ -76,11 +82,23 @@ Zero per-project config, tolerant of panes that come and go. Order:
 then nearest *descendant* (shallowest). More than one agent surviving a tier is ambiguous and
 answers **409 with the candidates** — it never breaks the tie itself.
 
-**`isInformativeProjectDir` is the load-bearing part.** A dev server started from `$HOME` has every
-agent below it, so containment matches all of them and any tie-break is arbitrary. `$HOME`, `/`,
-tmpdir, any ancestor of home, and directories with no project marker are rejected as *evidence*, so
-the port step yields nothing and the user is asked. It applies only to the dev server's directory,
-never to an agent's — an agent legitimately sits anywhere.
+The tier boundary is the whole point, and it is easy to talk yourself out of. *Within* a tier every
+candidate is a prefix of the next, so "deepest" and "longest string" agree and a plain length sort
+looks correct. They only part company *across* tiers — which is exactly where the old rule, one
+length sort over every match, sent a project's feedback to an unrelated session.
+
+**`isInformativeProjectDir` is the load-bearing part**, and it applies to *both* sides.
+
+On the dev server's directory: one started from `$HOME` has every agent below it, so containment
+matches all of them and any tie-break is arbitrary. `$HOME`, `/`, tmpdir, any ancestor of home, and
+directories with no project marker are rejected as evidence, so the port step yields nothing and the
+user is asked.
+
+On an agent's directory, in the ancestor tier only: an agent parked in `$HOME` *contains* every
+project on the machine, so containment alone would make it win for all of them and route each
+project's feedback to a session holding none of its code. Applying the test to only the dev-server
+side was the same idea done halfway. The exact tier needs no such check — exact is exact — and a
+descendant is inside the project by construction.
 
 ## herdr specifics that bite
 
