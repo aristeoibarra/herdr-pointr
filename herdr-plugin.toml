@@ -13,11 +13,10 @@ description = "Point at a DOM element on a localhost page; it lands in the codin
 # macOS. Windows has neither, so it is left out rather than half-working.
 platforms = ["linux", "macos"]
 
+# Fetches the bundle CI built for this exact commit, and falls back to
+# `npm ci && npm run build` when there is none. See scripts/build.sh.
 [[build]]
-command = ["npm", "ci"]
-
-[[build]]
-command = ["npm", "run", "build"]
+command = ["sh", "scripts/build.sh"]
 
 # One-shot, per herdr start: brings the bridge up only if it is not already
 # answering. herdr startup hooks are not supervised, so the command detaches the

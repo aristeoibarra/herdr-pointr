@@ -1,0 +1,61 @@
+# Builds dist/ for every commit on main (and every release tag) and attaches it
+# to the `dist` prerelease as pointr-dist-<sha>.tar.gz, which scripts/build.sh
+# fetches at install time instead of running npm ci. Named by commit: see the
+# header of scripts/build.sh for why.
+name: dist
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+# A tag push and the main push of the same commit upload the same asset name.
+concurrency:
+  group: dist-${{ github.sha }}
+
+jobs:
+  dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Package
+        run: tar -czf "pointr-dist-${GITHUB_SHA}.tar.gz" -C dist .
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view dist >/dev/null 2>&1; then
+            gh release create dist --prerelease --target "$GITHUB_SHA" \
+              --title "Prebuilt bundles" \
+              --notes "Built by CI, one per commit. Fetched by scripts/build.sh at install time; not meant to be downloaded by hand."
+          fi
+          gh release upload dist "pointr-dist-${GITHUB_SHA}.tar.gz" --clobber
+
+      # Keep the 20 newest, plus any commit a release tag points at, so a
+      # pinned `--ref vX.Y.Z` install stays fast long after it was cut.
+      - name: Prune
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tagged=$(git ls-remote --tags origin 'refs/tags/v*' | cut -f1)
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/dist" \
+            --jq '.assets | sort_by(.created_at) | reverse | .[20:] | .[] | "\(.id) \(.name)"' |
+          while read -r id name; do
+            sha=${name#pointr-dist-}
+            sha=${sha%.tar.gz}
+            if printf '%s\n' "$tagged" | grep -qx "$sha"; then continue; fi
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"
+          done

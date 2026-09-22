@@ -219,7 +219,19 @@ settings UI whatsoever.
 
 Distribution is the repo itself: tag the GitHub repo with the topic `herdr-plugin` and users run
 `herdr plugin install aristeoibarra/herdr-pointr`. There is no npm publish. `dist/` is **not**
-committed — `herdr plugin install` runs the manifest's `[[build]]` commands.
+committed — the manifest's one `[[build]]` step is `scripts/build.sh`.
+
+That script first fetches `pointr-dist-<commit>.tar.gz` from the `dist` prerelease, which
+`.github/workflows/dist.yml` fills on every push to `main` and every `v*` tag (keeping the newest
+20 plus every tagged commit). Only if that misses does it run `npm ci && npm run build`, so an
+install is ~35 KB instead of ~100 MB of devDependencies, and never worse than before. The bundle
+is keyed by **commit, not version**, and that is the part not to "simplify": an install from `main`
+a few commits past a release would otherwise get a `dist/` that disagrees with its own source, and
+nothing would fail. herdr checks out with `.git` present (`fetch --depth 1` + detached checkout,
+verified in herdr 0.9.1's `src/cli/plugin.rs`), which is what makes `git rev-parse HEAD` work there.
+
+`REQUIRED` in `scripts/build.sh` lists the runtime files a bundle must contain; add a tsup output
+and it has to go there too, or a prebuilt install ships without it.
 
 `version` lives in three files — `package.json`, `extension/manifest.json` and `herdr-plugin.toml` —
 read by npm, Chrome and herdr's registry respectively. Drift breaks no build; it just ships a plugin

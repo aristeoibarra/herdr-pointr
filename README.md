@@ -35,7 +35,8 @@ an approval dialog it can't answer for you.
 
 ## Requirements
 
-herdr 0.9.0+, Node 20+, Linux or macOS, and a coding agent running in a herdr pane.
+herdr 0.9.0+, Node 20+, `curl` or `wget`, Linux or macOS, and a coding agent running in a
+herdr pane. npm is only needed if a prebuilt bundle is unavailable (see below).
 
 ## Install
 
@@ -43,8 +44,10 @@ herdr 0.9.0+, Node 20+, Linux or macOS, and a coding agent running in a herdr pa
 herdr plugin install aristeoibarra/herdr-pointr
 ```
 
-That clones it, builds it, and registers it. The bridge then starts with herdr and stays
-out of your way. To check it:
+That clones it, fetches the ~35 KB bundle CI built for that exact commit, and registers
+it. If there is no such bundle — you installed in the minute after a push, or you are
+offline — it builds from source with npm instead. The bridge then starts with herdr and
+stays out of your way. To check it:
 
 ```bash
 herdr plugin action invoke aristeoibarra.pointr.status
