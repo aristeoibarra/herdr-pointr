@@ -31,11 +31,21 @@ export function bookmarkletPage(port: number): string {
   ol { padding-left: 20px; } li { margin: 8px 0; }
   .status { margin-top: 16px; font-size: 13px; }
   .ok { color: #6ee7a8; } .err { color: #ff8a8a; }
+  .servers { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
+  .servers li { display: flex; align-items: center; gap: 12px; background: #1a1a1a; border: 1px solid #2a2a2a;
+                border-radius: 12px; padding: 10px 14px; }
+  .servers .who { flex: 1; min-width: 0; }
+  .servers .name { font-weight: 700; } .servers .port { color: #999; font-size: 13px; margin-left: 6px; }
+  .servers .dest { font-size: 13px; color: #999; overflow-wrap: anywhere; }
+  .servers .dest.ok { color: #6ee7a8; } .servers .dest.warn { color: #f5c16c; }
+  .servers a.go { background: #d97757; color: #fff; text-decoration: none; border-radius: 999px;
+                  padding: 7px 16px; font-weight: 700; white-space: nowrap; }
+  .muted { color: #999; font-size: 13px; }
   .open { display: flex; gap: 8px; margin: 10px 0; }
   .open input { flex: 1; background: #1f1f1f; color: #eee; border: 1px solid #333; border-radius: 8px;
                 padding: 9px 12px; font: inherit; }
   .open button { background: #d97757; color: #fff; border: 0; border-radius: 999px; padding: 9px 18px;
-                 font-weight: 700; cursor: pointer; }
+                 font: inherit; font-weight: 700; cursor: pointer; }
   hr { border: none; border-top: 1px solid #2a2a2a; margin: 24px 0; }
   small { color: #999; }
 </style>
@@ -44,9 +54,11 @@ export function bookmarkletPage(port: number): string {
   <h1>pointr</h1>
   <p>Bridge is running on <code>http://localhost:${port}</code> <span id="st" class="status"></span></p>
 
-  <p><strong>Open your app through pointr</strong> — the widget comes already injected, no extension:</p>
+  <p><strong>Your dev servers</strong> — open one and the widget comes already injected, no extension:</p>
+  <ul id="servers" class="servers"><li class="muted">looking…</li></ul>
+  <p id="pinned" class="muted" hidden></p>
   <form action="/open" method="get" class="open">
-    <input name="url" placeholder="3000 or http://localhost:3000/path" required>
+    <input name="url" placeholder="Not listed? A port or URL: 3000, http://localhost:3000/path" required>
     <button type="submit">Open</button>
   </form>
   <p><small>That serves your dev server on its port + 10000 (3000 → 13000) with the widget
@@ -65,9 +77,45 @@ export function bookmarkletPage(port: number): string {
   the shortcut — are behind the gear in the widget's panel.</small></p>
 
 <script>
+  const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
   fetch('/health').then(r=>r.json()).then(d=>{
     document.getElementById('st').innerHTML = d.ok ? '<span class="ok">● connected</span>' : '';
+    const pinned = document.getElementById('pinned');
+    if (d.targetAgent) {
+      pinned.hidden = false;
+      pinned.textContent = 'A destination is pinned (' + d.targetAgent.paneId + '): every project sends there until you clear it.';
+    }
   }).catch(()=>{ document.getElementById('st').innerHTML='<span class="err">● offline</span>'; });
+
+  // Where a server's feedback would land, by the same tiers routing uses —
+  // "no agent" is the thing worth seeing before sending, not after.
+  function dest(agents, cwd) {
+    if (agents.length === 1) return '<div class="dest ok">→ ' + esc(agents[0].label) + ' · ' + esc(agents[0].status) + '</div>';
+    if (agents.length > 1) return '<div class="dest warn">' + agents.length + ' agents work here — you will be asked which</div>';
+    return '<div class="dest warn">no agent here yet — open one in herdr in ' + esc(cwd) + '</div>';
+  }
+
+  function render(servers) {
+    const list = document.getElementById('servers');
+    if (servers.length === 0) {
+      list.innerHTML = '<li class="muted">No dev server running in a project directory. Start one — <code>npm run dev</code> — and it shows up here.</li>';
+      return;
+    }
+    list.innerHTML = servers.map((s) =>
+      '<li><div class="who"><span class="name">' + esc(s.project) + '</span><span class="port">:' + s.port + '</span>' +
+      dest(s.agents, s.cwd) + '</div><a class="go" href="/open?url=' + s.port + '">Open</a></li>'
+    ).join('');
+  }
+
+  // Cheap for the bridge (one procfs pass), and only while this tab is looked at.
+  function refresh() {
+    if (document.hidden) return;
+    fetch('/servers').then(r=>r.json()).then(d=>render(d.servers || [])).catch(()=>{});
+  }
+  refresh();
+  setInterval(refresh, 4000);
+  document.addEventListener('visibilitychange', refresh);
 </script>
 </body>
 </html>`;

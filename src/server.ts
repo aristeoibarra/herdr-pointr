@@ -9,8 +9,15 @@ import { createHash } from "node:crypto";
 import type { BridgeConfig } from "./config.ts";
 import type { HerdrAgent } from "./herdr.ts";
 import { HerdrError, listAgents, notify, pasteText, promptAgent, reportTokens } from "./herdr.ts";
-import { portStrategy, ownersForPort } from "./ports.ts";
-import { resolveTarget, upstreamUrl, type AgentPin, type Resolution } from "./routing.ts";
+import { portStrategy, ownersForPort, listeningPorts } from "./ports.ts";
+import {
+  isInformativeProjectDir,
+  matchAgents,
+  resolveTarget,
+  upstreamUrl,
+  type AgentPin,
+  type Resolution,
+} from "./routing.ts";
 import { createProxyRegistry, parseTarget } from "./proxy.ts";
 import { stateDir } from "./daemon.ts";
 import { attach, retain, seed } from "./watch.ts";
@@ -36,6 +43,15 @@ const MAX_BODY_BYTES = 5_000_000;
 const SEND_WATCH_MS = 90_000;
 /** Just long enough to collapse the burst of /resolve calls when tabs wake. */
 const AGENT_CACHE_MS = 1_000;
+
+/** A dev server found on this machine, as the setup page lists it. */
+interface DevServer {
+  port: number;
+  project: string;
+  cwd: string;
+  /** Where its feedback would go, by the same tiers routing uses. */
+  agents: AgentEntry[];
+}
 
 interface CachedScript {
   at: number;
@@ -190,6 +206,11 @@ export function createServer(config: BridgeConfig) {
       }
       return;
     }
+    if (req.method === "GET" && pathname === "/servers") {
+      const live = await agents().catch(() => []);
+      sendJson(res, 200, { ok: true, servers: await devServers(live) });
+      return;
+    }
     if (req.method === "GET" && pathname === "/debug") {
       const live = await agents(true).catch(() => []);
       const port = searchParams.get("port");
@@ -262,6 +283,30 @@ export function createServer(config: BridgeConfig) {
       return;
     }
     sendJson(res, 404, { ok: false, reason: "not_found", error: "not found" });
+  }
+
+  /**
+   * The dev servers running on this machine, for the setup page: one bookmark
+   * (:7331) instead of one per project and port.
+   *
+   * "Dev server" is decided with the routing's own evidence test, so the list
+   * shows exactly the ports routing could attribute to a project — Docker,
+   * databases and anything started from $HOME fall out for the same reason
+   * they are never routing evidence. The bridge's own ports are left out.
+   */
+  async function devServers(live: HerdrAgent[]): Promise<DevServer[]> {
+    const byPort = new Map<number, DevServer>();
+    for (const entry of await listeningPorts()) {
+      if (entry.pid === process.pid || proxies.owns(entry.port) || entry.cwd === null) continue;
+      if (byPort.has(entry.port) || !isInformativeProjectDir(entry.cwd)) continue;
+      byPort.set(entry.port, {
+        port: entry.port,
+        project: basename(entry.cwd) || entry.cwd,
+        cwd: entry.cwd,
+        agents: matchAgents(entry.cwd, live).map((agent) => entryFor(agent, live)),
+      });
+    }
+    return [...byPort.values()].sort((a, b) => a.port - b.port);
   }
 
   /**

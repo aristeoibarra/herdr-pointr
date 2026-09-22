@@ -55,6 +55,8 @@ export interface ProxyRegistry {
   ensure(upstream: number): Promise<number>;
   /** proxy port → dev-server port, as strings, for routing. */
   aliases(): ReadonlyMap<string, string>;
+  /** Whether the bridge serves this port itself — its own port or one of its proxies. */
+  owns(port: number): boolean;
   closeAll(): void;
 }
 
@@ -221,6 +223,9 @@ export function createProxyRegistry(options: { bridgePort: number; stateDir: str
 
   return {
     ensure,
+    owns(port) {
+      return port === options.bridgePort || [...proxies.values()].some((proxy) => proxy.port === port);
+    },
     aliases() {
       return new Map([...proxies.values()].map((proxy) => [String(proxy.port), String(proxy.upstream)]));
     },

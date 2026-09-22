@@ -38,7 +38,7 @@ async function main(): Promise<void> {
       await openInBrowser(config.port, rest[0] ?? process.env.HERDR_PLUGIN_CLICKED_URL ?? null);
       return;
     case "doctor":
-      await doctor();
+      await doctor(config.port);
       return;
     case undefined:
     case "help":
@@ -198,7 +198,7 @@ async function openInBrowser(bridgePort: number, target: string | null): Promise
 }
 
 /** Everything the bridge needs, and whether it is actually there. */
-async function doctor(): Promise<void> {
+async function doctor(bridgePort: number): Promise<void> {
   const herdr = await isAvailable();
   log(`herdr socket   ${herdr ? "ok" : "MISSING"}  ${socketPath()}`);
   if (herdr) {
@@ -210,6 +210,34 @@ async function doctor(): Promise<void> {
   log(`port lookup    ${strategy === "none" ? `UNSUPPORTED on ${process.platform}` : `ok (${strategy})`}`);
 
   log(`config         ${configFile()}`);
+
+  // End on the next step, not on a status table: what to open, per project.
+  const bridge = `http://localhost:${bridgePort}`;
+  let servers: { port: number; project: string; agents: unknown[] }[] | null = null;
+  try {
+    const res = await fetch(`${bridge}/servers`, { signal: AbortSignal.timeout(3_000) });
+    const body: unknown = await res.json();
+    if (typeof body === "object" && body !== null && "servers" in body && Array.isArray(body.servers)) {
+      servers = body.servers.filter(
+        (entry): entry is { port: number; project: string; agents: unknown[] } =>
+          typeof entry === "object" && entry !== null && "port" in entry && "project" in entry && "agents" in entry,
+      );
+    }
+  } catch {
+    log(`bridge         NOT RUNNING on :${bridgePort} — start it: herdr plugin action invoke aristeoibarra.pointr.start`);
+    return;
+  }
+  log(`bridge         ok  ${bridge}`);
+  if (servers === null || servers.length === 0) {
+    log("\nNo dev server running in a project yet. Start one, then open it at");
+    log(`  ${bridge}  (it lists them) or ${bridge}/open?url=<port>`);
+    return;
+  }
+  log("\nOpen with the widget:");
+  for (const server of servers) {
+    const note = server.agents.length === 0 ? "  (no agent there yet)" : "";
+    log(`  ${server.project.padEnd(16)} ${bridge}/open?url=${server.port}${note}`);
+  }
 }
 
 function printHelp(): void {

@@ -77,16 +77,20 @@ function listeningInodes(port: number): Set<string> {
   return inodes;
 }
 
-/** Pids holding any of these socket inodes open. */
-function pidsForInodes(inodes: Set<string>): number[] {
-  const wanted = new Set([...inodes].map((inode) => `socket:[${inode}]`));
-  const pids: number[] = [];
+/**
+ * Which pids hold each of these socket inodes open — one walk of /proc however
+ * many inodes are asked about, which is what makes listing every port as cheap
+ * as looking up one.
+ */
+function pidsByInode(inodes: Set<string>): Map<string, number[]> {
+  const wanted = new Map([...inodes].map((inode) => [`socket:[${inode}]`, inode]));
+  const found = new Map<string, number[]>();
 
   let entries: string[];
   try {
     entries = readdirSync("/proc");
   } catch {
-    return pids;
+    return found;
   }
 
   for (const entry of entries) {
@@ -97,6 +101,7 @@ function pidsForInodes(inodes: Set<string>): number[] {
     } catch {
       continue; // someone else's process, or it exited mid-scan
     }
+    const pid = Number.parseInt(entry, 10);
     for (const handle of handles) {
       let link: string;
       try {
@@ -104,13 +109,27 @@ function pidsForInodes(inodes: Set<string>): number[] {
       } catch {
         continue;
       }
-      if (wanted.has(link)) {
-        pids.push(Number.parseInt(entry, 10));
-        break;
-      }
+      const inode = wanted.get(link);
+      if (inode === undefined) continue;
+      const pids = found.get(inode) ?? [];
+      if (!pids.includes(pid)) pids.push(pid);
+      found.set(inode, pids);
     }
   }
-  return pids;
+  return found;
+}
+
+/** Pids holding any of these socket inodes open. */
+function pidsForInodes(inodes: Set<string>): number[] {
+  return [...new Set([...pidsByInode(inodes).values()].flat())];
+}
+
+function cwdOf(pid: number): string | null {
+  try {
+    return readlinkSync(`/proc/${pid}/cwd`);
+  } catch {
+    return null;
+  }
 }
 
 function procfsOwners(port: number): PortOwner[] {
@@ -118,15 +137,17 @@ function procfsOwners(port: number): PortOwner[] {
   // Skip the /proc walk entirely when nothing is listening — the common case.
   if (inodes.size === 0) return [];
 
-  return pidsForInodes(inodes).map((pid) => {
-    let cwd: string | null;
-    try {
-      cwd = readlinkSync(`/proc/${pid}/cwd`);
-    } catch {
-      cwd = null;
-    }
-    return { pid, cwd } satisfies PortOwner;
-  });
+  return pidsForInodes(inodes).map((pid) => ({ pid, cwd: cwdOf(pid) }) satisfies PortOwner);
+}
+
+async function lsofCwd(pid: number): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]);
+    const line = stdout.split("\n").find((entry) => entry.startsWith("n"));
+    return line === undefined ? null : line.slice(1);
+  } catch {
+    return null;
+  }
 }
 
 async function lsofOwners(port: number): Promise<PortOwner[]> {
@@ -142,13 +163,7 @@ async function lsofOwners(port: number): Promise<PortOwner[]> {
     const trimmed = raw.trim();
     if (!/^\d+$/.test(trimmed)) continue;
     const pid = Number.parseInt(trimmed, 10);
-    try {
-      const { stdout } = await execFileAsync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]);
-      const line = stdout.split("\n").find((entry) => entry.startsWith("n"));
-      owners.push({ pid, cwd: line === undefined ? null : line.slice(1) });
-    } catch {
-      owners.push({ pid, cwd: null });
-    }
+    owners.push({ pid, cwd: await lsofCwd(pid) });
   }
   return owners;
 }
@@ -189,4 +204,95 @@ export async function cwdsForPort(port: string, excludePid: number | null = null
     if (owner.cwd !== null && owner.cwd.length > 0) dirs.add(owner.cwd);
   }
   return [...dirs];
+}
+
+/** A TCP port something is listening on, and the process doing it. */
+export interface ListeningPort {
+  port: number;
+  pid: number;
+  cwd: string | null;
+}
+
+/**
+ * Every listening TCP port, outside the ephemeral range. The range is where
+ * port-0 binds land — Next's internal router workers, debuggers, language
+ * servers — and a dev server a person opens in a browser is never there.
+ */
+export async function listeningPorts(): Promise<ListeningPort[]> {
+  const [low, high] = ephemeralRange();
+  const all = portStrategy() === "procfs" ? procfsListening() : portStrategy() === "lsof" ? await lsofListening() : [];
+  return all.filter((entry) => entry.port < low || entry.port > high);
+}
+
+function procfsListening(): ListeningPort[] {
+  const portByInode = new Map<string, number>();
+  for (const table of PROC_NET_TABLES) {
+    let contents: string;
+    try {
+      contents = readFileSync(table, "utf8");
+    } catch {
+      continue;
+    }
+    for (const line of contents.split("\n").slice(1)) {
+      const fields = line.trim().split(/\s+/);
+      const local = fields[1];
+      const inode = fields[9];
+      if (local === undefined || inode === undefined || fields[3] !== TCP_LISTEN) continue;
+      const hex = local.slice(local.lastIndexOf(":") + 1);
+      portByInode.set(inode, Number.parseInt(hex, 16));
+    }
+  }
+  if (portByInode.size === 0) return [];
+
+  const seen = new Set<string>();
+  const result: ListeningPort[] = [];
+  for (const [inode, pids] of pidsByInode(new Set(portByInode.keys()))) {
+    const port = portByInode.get(inode);
+    if (port === undefined) continue;
+    for (const pid of pids) {
+      // One port on both IPv4 and IPv6 is two inodes held by one process.
+      const key = `${port}:${pid}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({ port, pid, cwd: cwdOf(pid) });
+    }
+  }
+  return result;
+}
+
+async function lsofListening(): Promise<ListeningPort[]> {
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"]));
+  } catch {
+    return [];
+  }
+  const pairs = new Map<string, { port: number; pid: number }>();
+  let pid: number | null = null;
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith("p")) pid = Number.parseInt(line.slice(1), 10);
+    else if (line.startsWith("n") && pid !== null) {
+      const port = Number.parseInt(line.slice(line.lastIndexOf(":") + 1), 10);
+      if (Number.isInteger(port)) pairs.set(`${port}:${pid}`, { port, pid });
+    }
+  }
+  const cwds = new Map<number, string | null>();
+  const result: ListeningPort[] = [];
+  for (const { port, pid: owner } of pairs.values()) {
+    if (!cwds.has(owner)) cwds.set(owner, await lsofCwd(owner));
+    result.push({ port, pid: owner, cwd: cwds.get(owner) ?? null });
+  }
+  return result;
+}
+
+function ephemeralRange(): [number, number] {
+  if (process.platform === "linux") {
+    try {
+      const [low, high] = readFileSync("/proc/sys/net/ipv4/ip_local_port_range", "utf8").trim().split(/\s+/).map(Number);
+      if (low !== undefined && high !== undefined && Number.isInteger(low) && Number.isInteger(high)) return [low, high];
+    } catch {
+      // fall through to the IANA range
+    }
+  }
+  return [49_152, 65_535];
 }
