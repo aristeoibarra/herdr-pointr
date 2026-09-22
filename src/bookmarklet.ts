@@ -31,6 +31,11 @@ export function bookmarkletPage(port: number): string {
   ol { padding-left: 20px; } li { margin: 8px 0; }
   .status { margin-top: 16px; font-size: 13px; }
   .ok { color: #6ee7a8; } .err { color: #ff8a8a; }
+  .open { display: flex; gap: 8px; margin: 10px 0; }
+  .open input { flex: 1; background: #1f1f1f; color: #eee; border: 1px solid #333; border-radius: 8px;
+                padding: 9px 12px; font: inherit; }
+  .open button { background: #d97757; color: #fff; border: 0; border-radius: 999px; padding: 9px 18px;
+                 font-weight: 700; cursor: pointer; }
   hr { border: none; border-top: 1px solid #2a2a2a; margin: 24px 0; }
   small { color: #999; }
 </style>
@@ -39,25 +44,25 @@ export function bookmarkletPage(port: number): string {
   <h1>pointr</h1>
   <p>Bridge is running on <code>http://localhost:${port}</code> <span id="st" class="status"></span></p>
 
-  <p><strong>1.</strong> Drag this button to your bookmarks bar:</p>
-  <a class="bm" href="${code}">◎ Select → agent</a>
+  <p><strong>Open your app through pointr</strong> — the widget comes already injected, no extension:</p>
+  <form action="/open" method="get" class="open">
+    <input name="url" placeholder="3000 or http://localhost:3000/path" required>
+    <button type="submit">Open</button>
+  </form>
+  <p><small>That serves your dev server on its port + 10000 (3000 → 13000) with the widget
+  added to each page. From a terminal: <code>pointr open 3000</code>, or ctrl-click the
+  localhost URL an agent prints in herdr.</small></p>
 
-  <p><strong>2.</strong> Use it on any local dev app:</p>
-  <ol>
-    <li>Open your app (e.g. <code>http://localhost:3000</code>)</li>
-    <li>Make sure your coding agent runs in a herdr pane <em>inside that project's directory</em></li>
-    <li>Click the bookmark — the toolbar appears</li>
-    <li><code>Alt+C</code> or the button to select an element, then send</li>
-  </ol>
+  <hr>
+  <p><strong>Or keep your usual URL</strong> and drag this to your bookmarks bar, then click it on the page:</p>
+  <a class="bm" href="${code}">◎ Select → agent</a>
+  <p><small>The bookmarklet loads after the page, so console errors from before you click
+  it are not captured. The proxy has no such gap.</small></p>
 
   <hr>
   <p><small>Routing is automatic: the bridge maps the dev-server port to its project
-  directory and finds the agent working there. No per-project setup needed.</small></p>
-
-  <p><small>Settings — destination agent, auto-send, the selection
-  shortcut — live in the <strong>browser extension's toolbar popup</strong>
-  (<code>Load unpacked</code> the <code>extension/</code> folder). Loaded via the
-  bookmarklet alone, the widget runs on defaults.</small></p>
+  directory and finds the agent working there. Settings — destination, send-on-click,
+  the shortcut — are behind the gear in the widget's panel.</small></p>
 
 <script>
   fetch('/health').then(r=>r.json()).then(d=>{

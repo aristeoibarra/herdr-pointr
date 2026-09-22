@@ -33,6 +33,11 @@ export interface RoutingInput {
   /** Persisted pin from config. */
   pin: AgentPin | null;
   projectPath: string | null;
+  /**
+   * pointr's own proxy ports, each mapped to the dev-server port it fronts.
+   * A page opened through the proxy carries the proxy's port, not the app's.
+   */
+  portAliases: ReadonlyMap<string, string>;
 }
 
 /** Files that make a directory look like a project someone works in. */
@@ -150,6 +155,28 @@ function portOf(rawUrl: string): string | null {
   }
 }
 
+/**
+ * The page URL as the dev server itself serves it: a page opened through
+ * pointr's proxy is rewritten back to the port it fronts.
+ *
+ * Routing must never see a proxy port. The process listening there is the
+ * bridge, whose working directory is pointr's own checkout — so an
+ * untranslated URL does not fail, it resolves to whichever agent is working on
+ * pointr and delivers every project's feedback there.
+ */
+export function upstreamUrl(rawUrl: string, aliases: ReadonlyMap<string, string>): string {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return rawUrl;
+  }
+  const upstream = aliases.get(url.port);
+  if (upstream === undefined) return rawUrl;
+  url.port = upstream;
+  return url.toString();
+}
+
 /** Check a pin against live agents, reporting how it has gone stale. */
 function usePin(
   pin: AgentPin,
@@ -206,11 +233,15 @@ export async function resolveTarget(input: RoutingInput): Promise<Resolution> {
     if (resolved !== null) return resolved;
   }
 
-  const port = portOf(input.url);
+  const pagePort = portOf(input.url);
+  const port = portOf(upstreamUrl(input.url, input.portAliases));
+  if (pagePort !== null && port !== pagePort) trace.push(`port ${pagePort} is pointr's proxy for ${port}`);
   if (port === null) {
     trace.push("url carries no port");
   } else {
-    const dirs = await cwdsForPort(port);
+    // Second line of defence behind upstreamUrl: a port the bridge serves
+    // itself is never evidence of which project a page belongs to.
+    const dirs = await cwdsForPort(port, process.pid);
     if (dirs.length === 0) {
       trace.push(`port ${port}: nothing listening, or its cwd is unreadable`);
     } else {

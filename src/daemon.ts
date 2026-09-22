@@ -19,7 +19,7 @@ import { ownersForPort } from "./ports.ts";
 const READY_TIMEOUT_MS = 20_000;
 const POLL_MS = 250;
 
-function stateDir(): string {
+export function stateDir(): string {
   return process.env.HERDR_PLUGIN_STATE_DIR ?? join(homedir(), ".local", "state", "herdr-pointr");
 }
 

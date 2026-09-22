@@ -10,7 +10,9 @@ import type { BridgeConfig } from "./config.ts";
 import type { HerdrAgent } from "./herdr.ts";
 import { HerdrError, listAgents, notify, pasteText, promptAgent, reportTokens } from "./herdr.ts";
 import { portStrategy, ownersForPort } from "./ports.ts";
-import { resolveTarget, type AgentPin, type Resolution } from "./routing.ts";
+import { resolveTarget, upstreamUrl, type AgentPin, type Resolution } from "./routing.ts";
+import { createProxyRegistry, parseTarget } from "./proxy.ts";
+import { stateDir } from "./daemon.ts";
 import { attach, retain, seed } from "./watch.ts";
 import { formatPrompt, isSendPayload, type SendPayload } from "./format.ts";
 import { bookmarkletPage } from "./bookmarklet.ts";
@@ -57,6 +59,7 @@ export function createServer(config: BridgeConfig) {
   const scriptCache = new Map<string, CachedScript>();
   let agentCache: { at: number; agents: HerdrAgent[] } | null = null;
   let agentInflight: Promise<HerdrAgent[]> | null = null;
+  const proxies = createProxyRegistry({ bridgePort: config.port, stateDir: stateDir() });
 
   /**
    * Cached, but keyed on the bundle's mtime: without that, a rebuild during
@@ -115,6 +118,7 @@ export function createServer(config: BridgeConfig) {
   // Node closes any request older than this, which would silently kill every
   // SSE stream at the five-minute mark. Event streams are meant to be long.
   server.requestTimeout = 0;
+  server.on("close", () => proxies.closeAll());
 
   return server;
 
@@ -163,6 +167,29 @@ export function createServer(config: BridgeConfig) {
       res.end(body);
       return;
     }
+    if (req.method === "GET" && (pathname === "/open" || pathname === "/proxy")) {
+      const target = parseTarget(searchParams.get("url") ?? "");
+      if (target === null) {
+        sendJson(res, 400, { ok: false, reason: "invalid_request", error: "url must be a localhost URL or a port" });
+        return;
+      }
+      let port: number;
+      try {
+        port = await proxies.ensure(target.port);
+      } catch (error) {
+        sendJson(res, 400, { ok: false, reason: "invalid_request", error: errorMessage(error) });
+        return;
+      }
+      const url = `http://${target.hostname}:${port}${target.rest}`;
+      // /open is for a browser (a bookmark, the setup page); /proxy for the CLI.
+      if (pathname === "/open") {
+        res.writeHead(302, { location: url });
+        res.end();
+      } else {
+        sendJson(res, 200, { ok: true, url, upstream: target.port, port });
+      }
+      return;
+    }
     if (req.method === "GET" && pathname === "/debug") {
       const live = await agents(true).catch(() => []);
       const port = searchParams.get("port");
@@ -172,6 +199,7 @@ export function createServer(config: BridgeConfig) {
         override: null,
         pin: config.targetAgent,
         projectPath: config.projectPath,
+        portAliases: proxies.aliases(),
       });
       sendJson(res, 200, {
         ok: true,
@@ -192,6 +220,7 @@ export function createServer(config: BridgeConfig) {
         override: null,
         pin: config.targetAgent,
         projectPath: config.projectPath,
+        portAliases: proxies.aliases(),
       });
       if (resolution.kind === "resolved") {
         sendJson(res, 200, {
@@ -298,6 +327,7 @@ export function createServer(config: BridgeConfig) {
       override: overrideFrom(parsed),
       pin: config.targetAgent,
       projectPath: config.projectPath,
+      portAliases: proxies.aliases(),
     });
 
     if (resolution.kind !== "resolved") {
@@ -316,7 +346,8 @@ export function createServer(config: BridgeConfig) {
 
     const { agent } = resolution;
     const screenshotPath = parsed.screenshot ? await saveScreenshot(parsed.screenshot) : null;
-    const prompt = formatPrompt(parsed, screenshotPath);
+    // The agent gets the URL it can reason about — the app's, not the proxy's.
+    const prompt = formatPrompt({ ...parsed, url: upstreamUrl(parsed.url, proxies.aliases()) }, screenshotPath);
     const autoSubmit = parsed.autoSubmit !== false;
 
     try {

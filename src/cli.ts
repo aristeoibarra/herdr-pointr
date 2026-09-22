@@ -35,7 +35,7 @@ async function main(): Promise<void> {
       await pick();
       return;
     case "open":
-      openInBrowser(rest[0] ?? process.env.HERDR_PLUGIN_CLICKED_URL ?? null);
+      await openInBrowser(config.port, rest[0] ?? process.env.HERDR_PLUGIN_CLICKED_URL ?? null);
       return;
     case "doctor":
       await doctor();
@@ -167,12 +167,30 @@ function pause(): Promise<void> {
 }
 
 /**
- * Open a URL in the user's browser. Wired to the manifest's link handler, so
- * ctrl-clicking the localhost URL an agent printed lands on the page with the
- * widget already injected.
+ * Open a dev server in the browser through the bridge's injection proxy, so the
+ * page arrives with the widget already in it — no extension needed. Wired to
+ * the manifest's link handler, which makes a ctrl-clicked localhost URL do this.
+ *
+ * Takes a URL or a bare port. If the bridge cannot proxy it (not running, not
+ * a localhost URL), the original URL still opens: a link that does nothing is
+ * worse than a page without the widget.
  */
-function openInBrowser(url: string | null): void {
-  if (url === null) fail("No URL to open.");
+async function openInBrowser(bridgePort: number, target: string | null): Promise<void> {
+  if (target === null) fail("No URL to open. Pass one, or a port: `pointr open 3000`.");
+  let url = /^\d+$/.test(target) ? `http://localhost:${target}/` : target;
+  try {
+    const res = await fetch(`http://localhost:${bridgePort}/proxy?url=${encodeURIComponent(target)}`, {
+      signal: AbortSignal.timeout(3_000),
+    });
+    const body: unknown = await res.json();
+    if (res.ok && typeof body === "object" && body !== null && "url" in body && typeof body.url === "string") {
+      url = body.url;
+    } else {
+      log("the bridge would not proxy this URL; opening it without the widget");
+    }
+  } catch {
+    log(`no bridge on :${bridgePort}; opening without the widget`);
+  }
   const opener = process.platform === "darwin" ? "open" : "xdg-open";
   const child = spawn(opener, [url], { detached: true, stdio: "ignore" });
   child.unref();
@@ -205,7 +223,7 @@ function printHelp(): void {
       "  agents                             List the agents herdr can see",
       "  pin [w1:p1|--clear]                Pin/clear a destination agent (rarely needed)",
       "  pick                               Choose a destination from a list",
-      "  open <url>                         Open a URL in the browser",
+      "  open <url|port>                    Open a dev server with the widget injected",
       "  doctor                             Check herdr and port lookup",
       "",
       "Routing is automatic: the page's dev-server port maps to the directory it",

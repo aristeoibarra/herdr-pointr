@@ -174,14 +174,18 @@ export async function ownersForPort(port: string): Promise<PortOwner[]> {
 /**
  * Distinct working directories behind a port.
  *
+ * `excludePid` drops one process from the evidence — the bridge passes its own,
+ * since a port it serves (its proxies) says nothing about any project.
+ *
  * Returns the whole set rather than one string on purpose: collapsing several
  * owners to `head -1`, as the old code did, is how a guess got made before the
  * routing layer ever saw the evidence.
  */
-export async function cwdsForPort(port: string): Promise<string[]> {
+export async function cwdsForPort(port: string, excludePid: number | null = null): Promise<string[]> {
   const owners = await ownersForPort(port);
   const dirs = new Set<string>();
   for (const owner of owners) {
+    if (owner.pid === excludePid) continue;
     if (owner.cwd !== null && owner.cwd.length > 0) dirs.add(owner.cwd);
   }
   return [...dirs];

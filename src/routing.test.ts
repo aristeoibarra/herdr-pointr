@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { HerdrAgent } from "./herdr.ts";
-import { isInformativeProjectDir, matchAgents } from "./routing.ts";
+import { isInformativeProjectDir, matchAgents, upstreamUrl } from "./routing.ts";
 
 /**
  * These cover the one place in the bridge where being wrong is invisible:
@@ -118,5 +118,26 @@ describe("isInformativeProjectDir", () => {
 
   it("rejects a path that does not exist", () => {
     expect(isInformativeProjectDir(join(root, "gone"))).toBe(false);
+  });
+});
+
+describe("upstreamUrl", () => {
+  const aliases = new Map([["13000", "3000"]]);
+
+  // Untranslated, the proxy port leads to the bridge's own process, whose cwd
+  // is pointr's checkout: every proxied page would route to pointr's agent.
+  it("rewrites a proxy port to the dev-server port it fronts", () => {
+    expect(upstreamUrl("http://localhost:13000/settings?tab=2#x", aliases)).toBe(
+      "http://localhost:3000/settings?tab=2#x",
+    );
+  });
+
+  it("leaves a page opened directly untouched", () => {
+    expect(upstreamUrl("http://localhost:3000/", aliases)).toBe("http://localhost:3000/");
+  });
+
+  it("leaves a URL with no port or no URL at all untouched", () => {
+    expect(upstreamUrl("http://localhost/", aliases)).toBe("http://localhost/");
+    expect(upstreamUrl("not a url", aliases)).toBe("not a url");
   });
 });
