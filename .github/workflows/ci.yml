@@ -17,8 +17,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
       - run: npm ci
+      - run: npm run build
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
       - run: shellcheck scripts/*.sh

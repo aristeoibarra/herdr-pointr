@@ -1,7 +1,7 @@
-# Builds dist/ for every commit on main (and every release tag) and attaches it
-# to the `dist` prerelease as pointr-dist-<sha>.tar.gz, which scripts/build.sh
-# fetches at install time instead of running npm ci. Named by commit: see the
-# header of scripts/build.sh for why.
+# Builds the bridge binary for every commit on main (and every release tag),
+# for each supported platform, and attaches it to the `dist` prerelease as
+# pointr-<os>-<arch>-<sha>.tar.gz, which scripts/build.sh fetches at install
+# time. Named by commit: see the header of scripts/build.sh for why.
 name: dist
 
 on:
@@ -25,13 +25,23 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
       - run: npm ci
+      - run: npm run build
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build
 
+      # Static binaries, one per platform; CGO off so they run anywhere.
       - name: Package
-        run: tar -czf "pointr-dist-${GITHUB_SHA}.tar.gz" -C dist .
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${target%/*} arch=${target#*/} out="build/$os-$arch"
+            mkdir -p "$out"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w" -o "$out/pointr" ./bridge
+            tar -czf "pointr-$os-$arch-${GITHUB_SHA}.tar.gz" -C "$out" pointr
+          done
 
       - name: Publish
         env:
@@ -42,20 +52,20 @@ jobs:
               --title "Prebuilt bundles" \
               --notes "Built by CI, one per commit. Fetched by scripts/build.sh at install time; not meant to be downloaded by hand."
           fi
-          gh release upload dist "pointr-dist-${GITHUB_SHA}.tar.gz" --clobber
+          gh release upload dist pointr-*-"${GITHUB_SHA}".tar.gz --clobber
 
-      # Keep the 20 newest, plus any commit a release tag points at, so a
-      # pinned `--ref vX.Y.Z` install stays fast long after it was cut.
+      # Keep the newest 80 (20 commits × 4 platforms), plus any commit a
+      # release tag points at, so a pinned `--ref vX.Y.Z` install keeps working.
       - name: Prune
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tagged=$(git ls-remote --tags origin 'refs/tags/v*' | cut -f1)
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/dist" \
-            --jq '.assets | sort_by(.created_at) | reverse | .[20:] | .[] | "\(.id) \(.name)"' |
+            --jq '.assets | sort_by(.created_at) | reverse | .[80:] | .[] | "\(.id) \(.name)"' |
           while read -r id name; do
-            sha=${name#pointr-dist-}
-            sha=${sha%.tar.gz}
+            sha=${name%.tar.gz}
+            sha=${sha##*-}
             if printf '%s\n' "$tagged" | grep -qx "$sha"; then continue; fi
             gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"
           done

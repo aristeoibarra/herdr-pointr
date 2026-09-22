@@ -12,8 +12,8 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"],
+    "types": [],
     "noEmit": true
   },
-  "include": ["src", "client"]
+  "include": ["client"]
 }

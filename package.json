@@ -3,15 +3,10 @@
   "version": "2.0.0",
   "description": "Point at a DOM element on a localhost page and it lands in the coding agent that owns that project, with its React component, selector, styles and a screenshot.",
   "type": "module",
-  "bin": {
-    "pointr": "./dist/cli.js"
-  },
   "scripts": {
-    "build": "rm -rf dist && tsup",
-    "dev": "tsx src/cli.ts serve",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "build": "rm -rf dist && tsup && CGO_ENABLED=0 go build -trimpath -ldflags=\"-s -w\" -o dist/pointr ./bridge",
+    "typecheck": "tsc --noEmit && go vet ./bridge",
+    "test": "go test ./bridge"
   },
   "repository": {
     "type": "git",
@@ -29,14 +24,8 @@
   "license": "MIT",
   "devDependencies": {
     "@medv/finder": "^4.0.2",
-    "@types/node": "^22.0.0",
     "modern-screenshot": "^4.7.0",
     "tsup": "^8.5.1",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
-    "vitest": "^5.0.1"
-  },
-  "engines": {
-    "node": ">=20"
+    "typescript": "^5.7.0"
   }
 }
