@@ -168,7 +168,7 @@ function pause(): Promise<void> {
 
 /**
  * Open a dev server in the browser through the bridge's injection proxy, so the
- * page arrives with the widget already in it — no extension needed. Wired to
+ * page arrives with the widget already in it. Wired to
  * the manifest's link handler, which makes a ctrl-clicked localhost URL do this.
  *
  * Takes a URL or a bare port. If the bridge cannot proxy it (not running, not

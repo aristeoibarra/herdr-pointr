@@ -98,8 +98,7 @@ export function createServer(config: BridgeConfig) {
   /**
    * Cached agent list. The TTL is short because routing to a dead pane is far
    * worse than one extra socket; the single-flight matters more anyway, since
-   * the extension injects into every localhost tab and they all call /resolve
-   * at once when a window wakes.
+   * every open localhost tab calls /resolve at once when a window wakes.
    */
   async function agents(fresh = false): Promise<HerdrAgent[]> {
     if (!fresh && agentCache !== null && Date.now() - agentCache.at < AGENT_CACHE_MS) return agentCache.agents;
@@ -261,16 +260,14 @@ export function createServer(config: BridgeConfig) {
       }
       return;
     }
-    // `/sessions` is the name the shipped extension popup still calls. Keeping
-    // it saves a stale popup from showing an empty picker before it's reloaded.
-    if (req.method === "GET" && (pathname === "/agents" || pathname === "/sessions")) {
+    if (req.method === "GET" && pathname === "/agents") {
       try {
         const live = await agents();
         const entries = live.map((agent) => entryFor(agent, live));
-        sendJson(res, 200, { ok: true, agents: entries, sessions: entries });
+        sendJson(res, 200, { ok: true, agents: entries });
       } catch {
         // herdr not running — degrade to an empty list so the widget shows "Auto".
-        sendJson(res, 200, { ok: true, agents: [], sessions: [] });
+        sendJson(res, 200, { ok: true, agents: [] });
       }
       return;
     }
@@ -381,7 +378,7 @@ export function createServer(config: BridgeConfig) {
         ok: false,
         reason: ambiguous ? "ambiguous" : "no_agents",
         error: ambiguous
-          ? "Several agents could be working on this project — pick one in the extension popup."
+          ? "Several agents could be working on this project — pick one behind the gear in the panel."
           : "No agent found for this project. Open one in herdr inside the project directory, or pin one.",
         candidates: resolution.candidates.map((agent) => entryFor(agent, live)),
         trace: resolution.trace,
@@ -454,9 +451,9 @@ function describe(resolution: Resolution): string {
 }
 
 /**
- * A label for the popup's picker.
+ * A label for the widget's destination picker.
  *
- * Only stable fields go in: the extension persists this string next to the pin
+ * Only stable fields go in: the widget persists this string next to the pin
  * so it never has to call /agents again, and a status baked into it would be
  * wrong seconds later. Status and title ship as separate live fields.
  */

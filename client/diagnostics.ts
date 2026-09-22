@@ -1,7 +1,7 @@
 /**
  * Page-level diagnostics buffer: recent console errors, uncaught exceptions,
  * unhandled rejections, and failed fetch requests. Installed as early as the
- * widget loads (the extension injects at document_start), so a send carries
+ * widget loads (the proxy injects it first in <head>), so a send carries
  * the "why is it broken" context — not just the rendered DOM.
  */
 
@@ -17,7 +17,7 @@ const errors: string[] = [];
 const network: string[] = [];
 
 export function installDiagnostics(bridgeOrigin: string): void {
-  // Window-level guard: the widget can be injected twice (extension + bookmarklet).
+  // Window-level guard: the widget can be injected twice (proxy + bookmarklet).
   if (Reflect.get(window, "__pointrDiagnostics") === true) return;
   Reflect.set(window, "__pointrDiagnostics", true);
 

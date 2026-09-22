@@ -24,7 +24,6 @@ interface Hotkey {
   meta: boolean;
 }
 
-/** Must stay in sync with DEFAULT_HOTKEY in extension/popup.js. */
 const DEFAULT_HOTKEY: Hotkey = { code: "KeyC", alt: true, ctrl: false, shift: false, meta: false };
 
 /**
@@ -66,18 +65,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
- * Everything the extension popup owns arrives over postMessage (see
- * `extension/content.js`); the panel's own toggles stay in localStorage, which
- * is also the fallback when the widget is loaded without the extension.
- */
-interface ExtensionPrefs {
-  autoSend?: boolean;
-  hotkey?: Hotkey | null;
-  targetAgent?: AgentPin | null;
-  targetAgentLabel?: string | null;
-}
-
-/**
  * A pinned destination. The session id rides along so the bridge can tell an
  * agent that restarted in the same terminal from one that never moved.
  */
@@ -92,7 +79,7 @@ interface Prefs {
   shot: boolean;
   /** What the screenshot frames; remembered even while `shot` is off. */
   shotTarget: ShotTarget;
-  /** Agent pinned in the popup, or null for auto-routing. Set per origin. */
+  /** Agent pinned in settings, or null for auto-routing. Per origin, as localStorage is. */
   targetAgent: AgentPin | null;
   /** Human label for the pinned agent, so the panel needn't refetch /agents. */
   targetAgentLabel: string | null;
@@ -114,8 +101,8 @@ const ICON_CLOSE =
   const loader = document.currentScript as HTMLScriptElement | null;
   const BRIDGE_ORIGIN = loader?.src ? new URL(loader.src).origin : "http://localhost:7331";
 
-  // Hook console/fetch/error before the app code runs (extension injects at
-  // document_start), and before the double-injection guard below.
+  // Hook console/fetch/error before the app code runs (the proxy puts this
+  // script first in <head>), and before the double-injection guard below.
   installDiagnostics(BRIDGE_ORIGIN);
 
   if (document.getElementById(ROOT_ID)) return;
@@ -133,7 +120,7 @@ const ICON_CLOSE =
       /* Author rules such as .picked's display:flex outrank the UA's [hidden]. */
       [hidden] { display: none !important; }
 
-      /* Launcher: one button, one meaning. Settings live in the extension popup. */
+      /* Launcher: one button, one meaning. Settings live behind the panel's gear. */
       .fab {
         position: fixed; bottom: 16px; right: 16px; z-index: 2147483646;
         width: 52px; height: 52px; border-radius: 50%;
@@ -428,58 +415,9 @@ const ICON_CLOSE =
     }
   };
 
-  // ── Settings channel: the extension popup owns them, this widget only reads ──
-  // The popup writes to chrome.storage; extension/content.js relays it here.
-  // Without the extension (bookmarklet, React mount) nothing answers and the
-  // localStorage values loaded above stand.
-  const FROM_WIDGET = "pointr-widget";
-  const FROM_EXT = "pointr-ext";
-
-  /** Persist a change where the extension can see it, and in localStorage. */
-  function pushPrefs(patch: Record<string, unknown>): void {
-    savePrefs();
-    toExtension({ type: "prefs:set", prefs: patch });
-  }
-
-  const toExtension = (message: Record<string, unknown>): void => {
-    window.postMessage({ source: FROM_WIDGET, ...message }, location.origin);
-  };
-
-  function isExtensionPrefs(value: unknown): value is ExtensionPrefs {
-    return typeof value === "object" && value !== null;
-  }
-
-  function applyExtensionPrefs(incoming: ExtensionPrefs): void {
-    if (typeof incoming.autoSend === "boolean") prefs.autoSend = incoming.autoSend;
-    if (incoming.hotkey && typeof incoming.hotkey.code === "string") {
-      prefs.hotkey = normalizeHotkey(incoming.hotkey);
-    }
-    if (incoming.targetAgent === null || (incoming.targetAgent && typeof incoming.targetAgent.paneId === "string")) {
-      prefs.targetAgent = incoming.targetAgent;
-    }
-    if (typeof incoming.targetAgentLabel === "string" || incoming.targetAgentLabel === null) {
-      prefs.targetAgentLabel = incoming.targetAgentLabel;
-    }
-    savePrefs(); // keeps the fallback copy warm if the extension is later removed
-    fab.title = selectTitle();
-    if (panel.classList.contains("open")) void updateDest();
-  }
-
-  window.addEventListener("message", (event: MessageEvent<unknown>) => {
-    if (event.source !== window) return;
-    if (typeof event.data !== "object" || event.data === null) return;
-    const message: Record<string, unknown> = { ...event.data };
-    if (message.source !== FROM_EXT || message.type !== "prefs") return;
-    if (isExtensionPrefs(message.prefs)) applyExtensionPrefs(message.prefs);
-  });
-
-  toExtension({ type: "prefs:get" });
-
   // ── Settings, in the widget ──────────────────────────────────────────────
-  // They used to live in the extension popup. Moving them here means one place
-  // instead of two, and — the part that actually mattered — it gives the
-  // bookmarklet and the mounted-component paths a settings UI at all, since
-  // neither of those has a popup to open.
+  // Kept in the page's localStorage, which is scoped to the origin: a
+  // destination chosen for one app never follows you to another.
 
   interface AgentEntry {
     id: string;
@@ -687,7 +625,7 @@ const ICON_CLOSE =
       recordingHotkey = false;
       renderHotkeyBtn();
       fab.title = selectTitle();
-      pushPrefs({ hotkey: prefs.hotkey });
+      savePrefs();
       return;
     }
     if (e.key === "Escape") {
@@ -900,7 +838,6 @@ const ICON_CLOSE =
         prefs.targetAgent = null;
         prefs.targetAgentLabel = null;
         savePrefs();
-        toExtension({ type: "pin:clear" });
         notes.push("pinned agent was closed, auto-routed");
       } else if (data.stale?.reason === "session_replaced") {
         // The terminal is the same one, so the pin still points somewhere
@@ -1057,7 +994,7 @@ const ICON_CLOSE =
   });
   autoSendCheck.addEventListener("change", () => {
     prefs.autoSend = autoSendCheck.checked;
-    pushPrefs({ autoSend: prefs.autoSend });
+    savePrefs();
   });
   agentSelect.addEventListener("change", () => {
     const opt = agentSelect.selectedOptions[0];
@@ -1071,7 +1008,7 @@ const ICON_CLOSE =
     }
     setNote.textContent = "";
     setNote.classList.remove("err");
-    pushPrefs({ targetAgent: prefs.targetAgent, targetAgentLabel: prefs.targetAgentLabel });
+    savePrefs();
   });
   shotCheck.addEventListener("change", () => {
     prefs.shot = shotCheck.checked;
@@ -1093,6 +1030,6 @@ const ICON_CLOSE =
 
   fab.title = selectTitle();
   console.info(
-    `[pointr] widget ready — ${hotkeyLabel(prefs.hotkey)} or the button to select an element. Settings live in the extension popup.`,
+    `[pointr] widget ready — ${hotkeyLabel(prefs.hotkey)} or the button to select an element. Settings: the gear in the panel.`,
   );
 })();

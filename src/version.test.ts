@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Three files carry the version and nothing makes them agree.
+ * Two files carry the version and nothing makes them agree.
  *
- * They are read by different things — npm, Chrome, and herdr's plugin
- * registry — so a drift does not break a build, it just publishes a plugin
+ * They are read by different things — npm and herdr's plugin registry — so a
+ * drift does not break a build, it just publishes a plugin
  * whose manifest disagrees with its own package. That is confusing for whoever
  * installed it and invisible to whoever shipped it.
  */
@@ -33,15 +33,8 @@ function readManifestVersion(): string {
 }
 
 describe("version", () => {
-  it("is the same in package.json, the extension manifest and the plugin manifest", () => {
-    const pkg = readJsonVersion("package.json");
-    expect({
-      "extension/manifest.json": readJsonVersion("extension/manifest.json"),
-      "herdr-plugin.toml": readManifestVersion(),
-    }).toEqual({
-      "extension/manifest.json": pkg,
-      "herdr-plugin.toml": pkg,
-    });
+  it("is the same in package.json and the plugin manifest", () => {
+    expect(readManifestVersion()).toBe(readJsonVersion("package.json"));
   });
 
   it("is a plain semver triple", () => {

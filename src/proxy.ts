@@ -14,12 +14,12 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * The injection proxy: what makes the browser extension optional.
+ * The injection proxy: how the widget gets onto a page with nothing installed
+ * in the browser.
  *
  * A dev server on :3000 is also served on :13000, identical except that every
  * page navigation gets the widget's <script> as the first thing in <head>, so
- * its diagnostics hooks beat the app's own code exactly as the extension's
- * document_start injection does. Nothing else is touched: assets, API calls
+ * its diagnostics hooks beat the app's own code. Nothing else is touched: assets, API calls
  * and HMR are piped through byte for byte, never buffered or decoded, which
  * is what keeps a proxy in front of a dev server from costing anything.
  *
