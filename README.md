@@ -1,56 +1,82 @@
-# claude-tmux-bridge
+# pointr
 
-**Point at what's wrong in your browser. Fix it in the Claude Code session you already
-have open in tmux.**
+**Point at what's wrong in your browser. Fix it in the agent you already have open.**
 
-Click an element, say what should change, and it lands in the prompt of the right Claude
-pane — with the React component name and ancestry, serialized props, a clean selector,
-computed styles, recent console errors, and an optional screenshot. Nothing here drives
-your browser; context flows one way, from your eyes to the agent.
+Click an element, say what should change, and it lands in the prompt of the coding agent
+working on that project — with the React component name and ancestry, serialized props, a
+clean selector, computed styles, recent console errors, and an optional screenshot.
+Nothing here drives your browser; context flows one way, from your eyes to the agent.
+
+A [herdr](https://herdr.dev) plugin. Agent-agnostic: herdr recognises two dozen coding
+agents, and pointr talks to whichever one owns the project you're looking at.
 
 ![The widget open on a dev app: a ProfileCard outlined in the page, and the panel showing the resolved component, its ancestry, the typed request and the screenshot toggle](docs/panel.png)
 
 ## How it works
 
-![Flow: the widget posts the selected element to the bridge on :7331, which maps the dev-server port to its project directory and pastes the prompt into the matching Claude Code tmux pane](docs/flow.svg)
+![Flow: the widget posts the selected element to the bridge on :7331, which maps the dev-server port to its project directory and sends the prompt to the agent working there](docs/flow.svg)
 
-The widget sends the page URL. The bridge reads the dev-server **port**, finds the
-process listening on it (`lsof`), takes its **working directory**, and matches the Claude
-pane whose cwd is inside that project. Open as many projects as you like at once — no
-pinning, no per-project config.
+The widget sends the page URL. The bridge reads the dev-server **port**, finds the process
+listening on it, takes its **working directory**, and matches the agent working there.
+Open as many projects as you like at once — no pinning, no per-project config.
 
-Cascade: pinned pane (if it still exists) → port→cwd→pane → configured project → the only
-Claude pane. It never hard-fails on a stale pane id.
+Matching is tiered: exact directory, then nearest parent, then nearest child. When more
+than one agent fits equally it **asks instead of guessing**, and a directory that says
+nothing about which project it is — your home directory, say — is not treated as evidence
+at all.
+
+After a send, the widget follows the agent's real state: working, finished, or waiting on
+an approval dialog it can't answer for you.
 
 ## Requirements
 
-tmux, Node 20+, `lsof`, and Claude Code running in a tmux pane. Only `service` is
-macOS-only. Dictation additionally wants `whisper-cpp` + a ggml model.
+herdr 0.9.0+, Node 20+, Linux or macOS, and a coding agent running in a herdr pane.
+Dictation additionally wants `whisper-cpp` and a ggml model.
 
 ## Install
 
 ```bash
-npm i -g github:aristeoibarra/claude-tmux-bridge     # public repo, no token
-claude-tmux-bridge start                             # or: service install
+herdr plugin install aristeoibarra/herdr-pointr
 ```
 
-Also on GitHub Packages as `@aristeoibarra/claude-tmux-bridge`, which needs a `~/.npmrc`
-with a `read:packages` token. To hack on it: clone, `npm install && npm link`.
+That clones it, builds it, and registers it. The bridge then starts with herdr and stays
+out of your way. To check it:
 
 ```bash
-claude-tmux-bridge service install     # launchd: starts at login, restarts if it dies
+herdr plugin action invoke aristeoibarra.pointr.status
+herdr plugin action invoke aristeoibarra.pointr.doctor
+```
+
+To hack on it, link a local checkout instead — note that `plugin link` does **not** run
+the manifest's build step, so build it yourself:
+
+```bash
+git clone https://github.com/aristeoibarra/herdr-pointr && cd herdr-pointr
+npm install && npm run build
+herdr plugin link .
+```
+
+### Optional: a key for it
+
+```toml
+# ~/.config/herdr/config.toml
+[[keys.command]]
+key = "prefix+alt+p"
+type = "plugin_action"
+command = "aristeoibarra.pointr.pin"
+description = "pointr: send here"
 ```
 
 ## Load the widget
 
-**Extension (recommended):** open `brave://extensions`, enable Developer mode, **Load
-unpacked** → the `extension/` folder. It now appears on every `localhost` app
-automatically.
+**Extension (recommended):** open `brave://extensions` (or `chrome://extensions`), enable
+Developer mode, **Load unpacked** → the `extension/` folder. It now appears on every
+`localhost` app automatically.
 
 **Bookmarklet:** open `http://localhost:7331` and drag the button to your bookmarks bar.
 
-**CSP-strict projects:** copy [`examples/ClaudeBridge.tsx`](examples/ClaudeBridge.tsx)
-into the repo and render it in the root layout, dev-only.
+**CSP-strict projects:** copy [`examples/Pointr.tsx`](examples/Pointr.tsx) into the repo
+and render it in the root layout, dev-only.
 
 ### Settings
 
@@ -59,10 +85,13 @@ Changes apply live to open tabs, no reload.
 
 | Setting | Scope |
 | --- | --- |
-| **Target session** — pin a pane instead of auto-routing | per origin |
+| **Destination agent** — pin one instead of auto-routing | per origin |
 | **auto-send** — off pastes for review first | global |
 | **Dictation language** | global |
 | **Selection shortcut** — defaults to `Alt+C` | global |
+
+You can also pin from herdr itself: `pointr: send here` acts on the focused pane, and
+`pointr: choose a destination` opens a picker.
 
 Loaded via bookmarklet or project mount there is no popup, so the widget runs on defaults.
 
@@ -70,17 +99,17 @@ Loaded via bookmarklet or project mount there is no popup, so the widget runs on
 
 `Alt+C` or the button → hover → click. Refine with **↑ parent / ↓ child**, or **+ add**
 for several elements. Type the change (or dictate it with the mic), tick **screenshot** if
-it's visual, send. The panel shows **→ <project>** before you send, and after an auto-send
-the status line mirrors what Claude is doing, read from the tmux pane title.
+it's visual, send. The panel shows **→ \<project\>** before you send, and afterwards the
+status line follows the agent until it settles.
 
-## What lands in the pane
+## What lands in the agent
 
 ```text
-[claude-tmux-bridge] UI change request from the browser
+[pointr] UI change request from the browser
 
 Request: Make the avatar bigger and move the tags under the name.
 Page: http://localhost:4173/
-Screenshot: /tmp/claude-tmux-bridge/shot-1754112000-a1b2c3.png
+Screenshot: /tmp/herdr-pointr/shot-1754112000-a1b2c3.png
 
 Element 1: <ProfileCard>
 - Component path: ProfileCard › ProfileGrid › AppShell
@@ -114,15 +143,15 @@ the box. That's deliberate: the Web Speech API is Google's hosted recognizer, an
 disables it outright.
 
 ```bash
-brew install whisper-cpp
+# Arch: pacman -S whisper.cpp     macOS: brew install whisper-cpp
 curl -L -o ~/.local/share/whisper-cpp/ggml-small.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
 ```
 
-Model lookup is automatic across the usual share dirs; it prefers `small` (~2s on Apple
-Silicon) and skips English-only `.en` builds. Override `whisperBin`/`whisperModel` in
-`~/.config/claude-tmux-bridge/config.json`. If whisper is missing the mic hides itself and
-the popup says why.
+Model lookup is automatic across the usual share dirs; it prefers `small` for latency and
+skips English-only `.en` builds. Override `whisperBin`/`whisperModel` in the plugin's
+config directory (`herdr plugin config-dir aristeoibarra.pointr`). If whisper is missing
+the mic hides itself and the popup says why.
 
 **If your app sends `Permissions-Policy: microphone=()`** the mic is dead — that's an
 empty allowlist, so not even the page itself may record and `getUserMedia` throws
@@ -131,17 +160,23 @@ CSP also needs `connect-src` to reach `http://localhost:7331`.
 
 ## Commands
 
+Run through herdr as plugin actions, or directly as `pointr` if you put `dist/cli.js` on
+your PATH.
+
 | Command | What it does |
 | --- | --- |
-| `start [--port N] [--project PATH]` | Start the bridge (default `:7331`) |
-| `service <install\|uninstall\|status>` | Run as a launchd service (macOS) |
-| `target [%id\|--clear]` | Pin/clear a target pane (rarely needed) |
-| `panes` | List tmux panes and guess which run Claude Code |
+| `start` / `stop` / `status` | Manage the background bridge (default `:7331`) |
+| `serve [--port N] [--project PATH]` | Run it in the foreground instead |
+| `agents` | List the agents herdr can see |
+| `pin [w1:p1\|--clear]` / `pick` | Choose a destination (rarely needed) |
+| `doctor` | Check herdr, port lookup and dictation |
+
+Routing not doing what you expect? `GET /debug?port=<N>` returns the full decision trace.
 
 ## Security
 
-Development-only. The bridge binds to `localhost`, accepts any local origin, and pastes
-what it receives into your pane. Run it only on a machine you control; don't expose the
+Development-only. The bridge binds to `localhost`, accepts any local origin, and sends
+what it receives to your agent. Run it only on a machine you control; don't expose the
 port.
 
 ## License
