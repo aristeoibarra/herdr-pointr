@@ -213,8 +213,13 @@ settings UI whatsoever.
 
 Distribution is the repo itself: tag the GitHub repo with the topic `herdr-plugin` and users run
 `herdr plugin install aristeoibarra/herdr-pointr`. There is no npm publish. `dist/` is **not**
-committed — `herdr plugin install` runs the manifest's `[[build]]` commands. Keep `version` in sync
-across `package.json`, `extension/manifest.json` and `herdr-plugin.toml`.
+committed — `herdr plugin install` runs the manifest's `[[build]]` commands.
+
+`version` lives in three files — `package.json`, `extension/manifest.json` and `herdr-plugin.toml` —
+read by npm, Chrome and herdr's registry respectively. Drift breaks no build; it just ships a plugin
+whose manifest disagrees with its own package, which is invisible to whoever released it and
+confusing to whoever installed it. `src/version.test.ts` fails when they disagree, so bumping means
+bumping all three.
 
 ## Conventions
 
