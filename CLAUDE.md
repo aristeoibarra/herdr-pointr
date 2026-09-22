@@ -146,16 +146,19 @@ PATH, and the script runs `dist/pointr` from the plugin root wherever herdr star
 every dispatch and a shortfall is a hard load failure, so do not raise it casually. Declaring an
 unknown `[[events]]` name, by contrast, is only an install-preview warning.
 
-## React fiber walking (client/react-fiber.ts)
+## Framework adapters (client/frameworks/)
 
-Resolves the owning component name + ancestry by walking `__reactFiber$*`, mirroring React DevTools'
-name resolution (memo/forwardRef/lazy). `getComponentProps` snapshots the owner's `memoizedProps` as
-flat strings (scalars verbatim; functions/objects/elements summarized, never deep-serialized — keep
-it that way, props can hold huge object graphs). React 19 removed `_debugSource`, so file:line is
-**not** available from the fiber — component identity is what lets the agent grep to the file.
-`FRAMEWORK_RE` is a **pattern** (not an exact list) that filters Next.js/App-Router internal
-wrappers, because Next renames them across versions; extend the pattern rather than hardcoding
-names. Exact `file:line` is only available if a project opts into a `data-source` Babel plugin.
+`capture.ts` asks each adapter in `index.ts`, in order, what component rendered the clicked element;
+the first non-null answer wins, and an adapter that throws is skipped, never fatal. Each one
+implements `FrameworkAdapter` (`types.ts`) and reads only what its framework exposes in dev builds.
+Props go through `describeProps` (`props.ts`): summarized, never deep-serialized — props can hold
+huge object graphs. A `data-source` attribute (the optional Babel plugin in `examples/`) is exact,
+so it beats any source an adapter infers.
+
+`react.ts` walks `__reactFiber$*`, mirroring React DevTools' name resolution (memo/forwardRef/lazy).
+React 19 removed `_debugSource`, so it has no file:line — component identity is what lets the agent
+grep to the file. `FRAMEWORK_RE` is a **pattern**, not an exact list, filtering Next.js/App-Router
+wrappers because Next renames them across versions; extend the pattern rather than hardcoding names.
 
 ## Widget delivery & config
 

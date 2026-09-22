@@ -45,7 +45,7 @@ Request: Make the avatar bigger and move the tags under the name.
 Page: http://localhost:3000/
 Screenshot: /tmp/herdr-pointr/shot-1754112000-a1b2c3.png
 
-Element 1: <ProfileCard>
+Element 1: <ProfileCard> (react)
 - Component path: ProfileCard › ProfileGrid › AppShell
 - Selector: article:nth-of-type(2)
 - Props: name="Idris Okonkwo", role="Product Designer", tags=Array(1)
