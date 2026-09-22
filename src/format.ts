@@ -27,7 +27,13 @@ export interface SendPayload {
   elements: ElementPayload[];
   screenshot: string | null;
   autoSubmit: boolean;
-  /** Per-tab override: pane id picked in the widget's Settings. null/absent = auto-route. */
+  /**
+   * Per-tab override picked in the extension popup. null/absent = auto-route.
+   * `targetAgent` carries the agent session alongside the pane id, so the
+   * bridge can tell a restarted agent from an unchanged one; `targetPane` is
+   * the older bare-pane-id form a widget built before that may still send.
+   */
+  targetAgent?: { paneId: string; session: string | null } | null;
   targetPane?: string | null;
   diagnostics?: DiagnosticsPayload | null;
 }

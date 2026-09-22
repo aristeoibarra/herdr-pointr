@@ -1,33 +1,28 @@
 import { createServer } from "./server.ts";
-import { installService, uninstallService, serviceStatus } from "./service.ts";
-import { loadConfig, saveConfig, CONFIG_FILE, DEFAULT_PORT } from "./config.ts";
-import {
-  currentPane,
-  detectClaudePanes,
-  isInsideTmux,
-  isTmuxAvailable,
-  listPanes,
-} from "./tmux.ts";
+import { loadConfig, saveConfig, configFile, DEFAULT_PORT } from "./config.ts";
+import { listAgents, isAvailable, setSocketPath, socketPath } from "./herdr.ts";
+import { portStrategy } from "./ports.ts";
+import { shutdownWatchers } from "./watch.ts";
+import { dictationStatus } from "./transcribe.ts";
 
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
-
-  if (!(await isTmuxAvailable())) {
-    fail("tmux is not installed or not on PATH.");
-  }
+  const config = await loadConfig();
+  setSocketPath(config.herdrSocketPath);
 
   switch (command) {
+    case "serve":
     case "start":
-      await start(rest);
+      await serve(config, rest);
       return;
-    case "panes":
-      await panes();
+    case "agents":
+      await printAgents();
       return;
-    case "target":
-      await target(rest);
+    case "pin":
+      await pin(rest);
       return;
-    case "service":
-      await service(rest);
+    case "doctor":
+      await doctor();
       return;
     case undefined:
     case "help":
@@ -40,8 +35,7 @@ async function main(): Promise<void> {
   }
 }
 
-async function start(args: string[]): Promise<void> {
-  const config = await loadConfig();
+async function serve(config: Awaited<ReturnType<typeof loadConfig>>, args: string[]): Promise<void> {
   const portArg = readFlag(args, "--port");
   if (portArg) config.port = Number.parseInt(portArg, 10);
   const projectArg = readFlag(args, "--project");
@@ -51,104 +45,96 @@ async function start(args: string[]): Promise<void> {
   server.listen(config.port, () => {
     log(`bridge listening on http://localhost:${config.port}`);
     log(`widget:  http://localhost:${config.port}/widget.js`);
-    if (config.targetPane) {
-      log(`target:  pane ${config.targetPane} (pinned)`);
-    } else {
-      const project = config.projectPath ?? process.cwd();
-      log(`target:  auto-detect Claude pane by project path (${project})`);
-      log("         tip: pin one with `claude-tmux-bridge target` if detection is ambiguous.");
-    }
+    log(`herdr:   ${socketPath()}`);
+    if (config.targetAgent) log(`target:  ${config.targetAgent.paneId} (pinned)`);
+    else log("target:  resolved per page (dev-server port -> project dir -> agent)");
   });
+
+  // An open event stream keeps the server from closing, so SIGINT would hang
+  // forever without ending them first.
+  const shutdown = (): void => {
+    shutdownWatchers();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 2_000).unref();
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
-async function panes(): Promise<void> {
-  const all = await listPanes();
-  const claude = new Set((await detectClaudePanes()).map((p) => p.id));
-  const here = currentPane();
-
-  log("tmux panes:");
-  for (const pane of all) {
-    const tags = [
-      claude.has(pane.id) ? "claude?" : "",
-      pane.id === here ? "this-pane" : "",
-      pane.active ? "active" : "",
-    ]
-      .filter(Boolean)
-      .join(",");
-    log(`  ${pane.id.padEnd(6)} ${pane.command.padEnd(14)} ${pane.path}${tags ? `  [${tags}]` : ""}`);
+async function printAgents(): Promise<void> {
+  if (!(await isAvailable())) fail(`No herdr server answering at ${socketPath()}.`);
+  const agents = await listAgents();
+  if (agents.length === 0) {
+    log("herdr is running, but no agents are open.");
+    return;
+  }
+  log("agents:");
+  for (const agent of agents) {
+    log(`  ${agent.paneId.padEnd(10)} ${agent.kind.padEnd(10)} ${agent.status.padEnd(8)} ${agent.cwd}`);
   }
 }
 
-async function target(args: string[]): Promise<void> {
+/**
+ * Pinning is rarely needed — routing is automatic — but it settles the case
+ * where several agents legitimately match one project.
+ */
+async function pin(args: string[]): Promise<void> {
   const config = await loadConfig();
 
   if (args.includes("--clear")) {
-    config.targetPane = null;
+    config.targetAgent = null;
     await saveConfig(config);
-    log("target pane cleared — bridge will auto-detect by project path.");
+    log("pin cleared — the bridge resolves the agent per page again.");
     return;
   }
 
-  const explicit = args.find((a) => a.startsWith("%"));
-  const pane = explicit ?? currentPane();
-  if (!pane) {
-    fail(
-      "Could not determine a target pane.\n" +
-        "Run this inside the Claude Code tmux pane, or pass one explicitly: `target %7`.",
-    );
+  // Default to the pane this ran in, which is what herdr exports to an agent.
+  const paneId = args.find((arg) => /^w\d+:p\d+$/.test(arg)) ?? process.env.HERDR_PANE_ID ?? null;
+  if (paneId === null) {
+    fail("No pane to pin. Run this inside a herdr pane, or pass one: `pin w1:p1`.");
   }
 
-  if (!isInsideTmux() && !explicit) {
-    fail("Not inside tmux. Pass a pane id explicitly: `target %7`.");
-  }
+  const agent = (await listAgents()).find((candidate) => candidate.paneId === paneId);
+  if (agent === undefined) fail(`herdr reports no agent in pane ${paneId}.`);
 
-  config.targetPane = pane;
+  config.targetAgent = { paneId: agent.paneId, session: agent.sessionId };
   await saveConfig(config);
-  log(`target pane set to ${pane}`);
-  log(`saved to ${CONFIG_FILE}`);
+  log(`pinned ${agent.paneId} (${agent.kind}) in ${agent.cwd}`);
+  log(`saved to ${configFile()}`);
 }
 
-async function service(args: string[]): Promise<void> {
-  if (process.platform !== "darwin") fail("`service` (launchd) is macOS-only.");
-  switch (args[0]) {
-    case "install": {
-      const plist = await installService();
-      log("service installed and started (runs at login, restarts if it dies).");
-      log(`plist: ${plist}`);
-      log("logs:  ~/Library/Logs/claude-tmux-bridge/");
-      return;
-    }
-    case "uninstall":
-      await uninstallService();
-      log("service stopped and removed.");
-      return;
-    case "status":
-      log(await serviceStatus());
-      return;
-    default:
-      fail("Usage: claude-tmux-bridge service <install|uninstall|status>");
+/** Everything the bridge needs, and whether it is actually there. */
+async function doctor(): Promise<void> {
+  const herdr = await isAvailable();
+  log(`herdr socket   ${herdr ? "ok" : "MISSING"}  ${socketPath()}`);
+  if (herdr) {
+    const agents = await listAgents();
+    log(`agents         ${agents.length} open`);
   }
+
+  const strategy = portStrategy();
+  log(`port lookup    ${strategy === "none" ? `UNSUPPORTED on ${process.platform}` : `ok (${strategy})`}`);
+
+  const config = await loadConfig();
+  const dictation = await dictationStatus(config);
+  log(`dictation      ${dictation.available ? `ok (${dictation.model ?? "model"})` : `off — ${dictation.error ?? "unavailable"}`}`);
+  log(`config         ${configFile()}`);
 }
 
 function printHelp(): void {
   log(
     [
-      "claude-tmux-bridge — send selected browser elements into a Claude Code tmux pane",
+      "Send selected browser elements into the coding agent that owns the project.",
       "",
       "Usage:",
-      "  start [--port N] [--project PATH]    Start the bridge (default :" + DEFAULT_PORT + ")",
-      "  service <install|uninstall|status>  Run the bridge as a launchd service (macOS)",
-      "  target [%id|--clear]               Pin/clear a target pane (rarely needed)",
-      "  panes                              List tmux panes and guess which run Claude",
+      "  serve [--port N] [--project PATH]  Run the bridge in the foreground (default :" + DEFAULT_PORT + ")",
+      "  agents                             List the agents herdr can see",
+      "  pin [w1:p1|--clear]                Pin/clear a destination agent (rarely needed)",
+      "  doctor                             Check herdr, port lookup and dictation",
       "",
-      "Setup (once):",
-      "  1. npm link                  Make the CLI global",
-      "  2. claude-tmux-bridge start  (or `service install` to auto-start at login)",
-      "  3. open http://localhost:" + DEFAULT_PORT + "  and drag the bookmarklet to your bar",
-      "",
-      "Then in any project: run the dev server, open Claude Code in a tmux pane inside",
-      "the project dir, click the bookmarklet, select, send. Routing is automatic",
-      "(dev-server port -> project dir -> matching Claude pane).",
+      "Routing is automatic: the page's dev-server port maps to the directory it",
+      "was launched from, which maps to the agent working there. Pin only when",
+      "several agents legitimately match one project.",
     ].join("\n"),
   );
 }

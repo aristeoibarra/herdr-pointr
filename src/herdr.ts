@@ -112,8 +112,19 @@ const MAX_LINE_BYTES = 8_000_000;
  * is exactly why the env var has to win — a plugin launched from a named
  * session would otherwise talk to the wrong server.
  */
+let configuredSocket: string | null = null;
+
+/**
+ * Pin the socket explicitly, ahead of the environment. A detached daemon is
+ * started by a service manager with a fresh environment, so a named session's
+ * socket path has to be configured rather than inherited.
+ */
+export function setSocketPath(path: string | null): void {
+  configuredSocket = path;
+}
+
 export function socketPath(): string {
-  return process.env.HERDR_SOCKET_PATH ?? join(homedir(), ".config", "herdr", "herdr.sock");
+  return configuredSocket ?? process.env.HERDR_SOCKET_PATH ?? join(homedir(), ".config", "herdr", "herdr.sock");
 }
 
 let requestSeq = 0;
@@ -288,9 +299,22 @@ export async function promptAgent(paneId: string, text: string): Promise<HerdrAg
   return toAgent(result["agent"]);
 }
 
-/** Literal text with no Enter — the "let me review it first" path. */
-export async function sendText(paneId: string, text: string): Promise<void> {
-  await request("pane.send_text", { pane_id: paneId, text });
+/**
+ * Text into a pane as a bracketed paste, with no Enter — the "let me review it
+ * before sending" path.
+ *
+ * The markers are not optional. `pane.send_text` passes bytes through raw, so
+ * an unwrapped multi-line prompt arrives as a sequence of lines and the
+ * receiving program treats each newline as a submission: verified against a
+ * shell, where three lines ran as three commands. Wrapped, the same three
+ * arrived as one buffer. This is what tmux's `paste-buffer -p` was doing, and
+ * losing it would quietly split every prompt into separate messages.
+ *
+ * `agent.prompt` does its own bracketed-paste handling, so this is only for the
+ * no-submit path.
+ */
+export async function pasteText(paneId: string, text: string): Promise<void> {
+  await request("pane.send_text", { pane_id: paneId, text: `\u001b[200~${text}\u001b[201~` });
 }
 
 /** A herdr toast. Best-effort: a failed notification must never fail a send. */
