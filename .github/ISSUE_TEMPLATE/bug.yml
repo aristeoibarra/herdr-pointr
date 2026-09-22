@@ -1,0 +1,18 @@
+name: Bug
+description: Something does not work
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: OS and herdr version
+      placeholder: macOS 26.6, herdr 0.9.1
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Contents of http://localhost:7331/debug?port=YOUR_APP_PORT
+      render: json
