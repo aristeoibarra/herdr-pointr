@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /**
- * herdr socket client — replaces the tmux shell-outs.
+ * herdr socket client.
  *
  * Transport facts, all verified against herdr 0.9.1 (protocol 22) rather than
  * assumed. Each one shapes the module, so don't "simplify" them away:
