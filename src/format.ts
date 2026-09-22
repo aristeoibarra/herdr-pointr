@@ -48,8 +48,22 @@ export function isSendPayload(value: unknown): value is SendPayload {
   );
 }
 
-/** Build a clean, Claude-friendly prompt from selected elements + request. */
+/**
+ * Render the agent-facing prompt.
+ *
+ * Written for what the agent does next, which is always "find this in the
+ * source and edit it" — not "describe what is on screen". Measured against a
+ * real send, 83% of what used to go out was never read: computed styles that
+ * restated the class list, an icon's bezier path data, geometry, and four
+ * levels of context providers.
+ *
+ * Geometry and computed styles now ride along only when a screenshot does.
+ * That is not a shortcut: ticking the screenshot box is how someone says "this
+ * is a visual problem", and a visual problem is the only kind where the
+ * rendered values beat the class list that is already in the HTML.
+ */
 export function formatPrompt(payload: SendPayload, screenshotPath: string | null): string {
+  const visual = screenshotPath !== null;
   const lines: string[] = ["[pointr] UI change request from the browser", ""];
 
   lines.push(`Request: ${payload.message.trim() || "(no message provided)"}`);
@@ -60,6 +74,9 @@ export function formatPrompt(payload: SendPayload, screenshotPath: string | null
   payload.elements.forEach((el, i) => {
     const heading = el.component ? `<${el.component}>` : `${el.tag}${el.id ? `#${el.id}` : ""}`;
     lines.push(`Element ${i + 1}: ${heading}`);
+    // First, because it ends the search: with the data-source Babel plugin on,
+    // this is the file and line, and nothing else has to be grepped for.
+    if (el.source) lines.push(`- Source: ${el.source}`);
     if (el.componentStack.length > 0) {
       lines.push(`- Component path: ${el.componentStack.join(" › ")}`);
     }
@@ -70,17 +87,20 @@ export function formatPrompt(payload: SendPayload, screenshotPath: string | null
         .join(", ");
       lines.push(`- Props: ${truncate(props, 500)}`);
     }
-    if (el.source) lines.push(`- Source: ${el.source}`);
-    if (el.role || el.accessibleName) {
-      lines.push(`- Role/name: ${[el.role, el.accessibleName].filter(Boolean).join(" / ")}`);
+    // Only when it says something the text doesn't already say.
+    const name = el.accessibleName === el.text.trim() ? null : el.accessibleName;
+    if (el.role || name) {
+      lines.push(`- Role/name: ${[el.role, name].filter(Boolean).join(" / ")}`);
     }
-    lines.push(`- Box: ${el.box.w}×${el.box.h} at (${el.box.x}, ${el.box.y})`);
-    const styles = formatStyles(el.styles);
-    if (styles) lines.push(`- Key styles: ${styles}`);
+    if (visual) {
+      lines.push(`- Box: ${el.box.w}×${el.box.h} at (${el.box.x}, ${el.box.y})`);
+      const styles = formatStyles(el.styles);
+      if (styles) lines.push(`- Key styles: ${styles}`);
+    }
     if (el.text) lines.push(`- Text: "${truncate(el.text, 200)}"`);
     lines.push("- HTML:");
     lines.push("```html");
-    lines.push(truncate(el.html, 1500));
+    lines.push(truncate(el.html, 1000));
     lines.push("```");
     lines.push("");
   });

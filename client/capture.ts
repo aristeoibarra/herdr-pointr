@@ -23,20 +23,69 @@ const STYLE_PROPS = [
   "flexDirection", "justifyContent", "alignItems", "flexWrap",
   "gridTemplateColumns", "gridTemplateRows",
   "fontSize", "fontWeight", "lineHeight", "letterSpacing", "textAlign",
-  "fontFamily", "textTransform", "whiteSpace",
+  "textTransform", "whiteSpace",
   "color", "backgroundColor", "backgroundImage", "opacity",
-  "borderRadius", "borderWidth", "borderStyle", "borderColor", "boxShadow", "outline",
-  "transform", "transition", "overflow", "zIndex", "cursor",
+  "borderRadius", "borderWidth", "borderStyle", "borderColor", "boxShadow",
+  "transform", "overflow", "zIndex", "cursor",
 ] as const;
 
+/**
+ * Values that carry no information, per property.
+ *
+ * The old filter was one set of five strings matched against every property,
+ * which let most of the noise through: on a real send, 65% of the style block
+ * was defaults. `position: static` and `flexWrap: nowrap` read like findings
+ * and are just what CSS does when nobody said otherwise.
+ *
+ * `fontFamily`, `transition` and `outline` are not in STYLE_PROPS at all.
+ * fontFamily is inherited and enormous (the emoji fallback stack alone is
+ * ~80 characters); the other two are almost never what a change request is
+ * about, and when they are, the class list in the HTML says it better.
+ */
+const DEFAULTS: Record<string, readonly string[]> = {
+  position: ["static"],
+  boxSizing: ["border-box", "content-box"],
+  flexDirection: ["row"],
+  flexWrap: ["nowrap"],
+  justifyContent: ["normal", "flex-start"],
+  alignItems: ["normal", "stretch"],
+  fontWeight: ["400"],
+  textAlign: ["start", "left"],
+  opacity: ["1"],
+  overflow: ["visible"],
+  cursor: ["auto", "default"],
+  borderStyle: ["none", "solid"],
+  lineHeight: ["normal"],
+};
+
 const SKIP_VALUES = new Set(["none", "normal", "auto", "0px", "0s", "rgba(0, 0, 0, 0)"]);
+
+/**
+ * Tailwind's shadow utilities emit a ring/offset scaffold of fully transparent
+ * shadows before the real ones — four of them, ~120 characters, saying nothing.
+ */
+function trimShadow(value: string): string {
+  const trimmed = value
+    .replace(/rgba\(0,\s*0,\s*0,\s*0\)(?:\s+-?[\d.]+px){2,4}\s*,?\s*/g, "")
+    .replace(/,\s*$/, "")
+    .trim();
+  return trimmed;
+}
 
 function captureStyles(el: Element): Record<string, string> {
   const cs = getComputedStyle(el);
   const out: Record<string, string> = {};
   for (const prop of STYLE_PROPS) {
-    const value = cs.getPropertyValue(camelToKebab(prop)).trim();
-    if (value && !SKIP_VALUES.has(value)) out[prop] = value;
+    let value = cs.getPropertyValue(camelToKebab(prop)).trim();
+    if (prop === "boxShadow") value = trimShadow(value);
+    if (!value || SKIP_VALUES.has(value)) continue;
+    if (DEFAULTS[prop]?.includes(value)) continue;
+    out[prop] = value;
+  }
+  // A border colour and style describe a border that isn't there.
+  if (!("borderWidth" in out)) {
+    delete out["borderStyle"];
+    delete out["borderColor"];
   }
   return out;
 }
@@ -76,6 +125,25 @@ function accessibleName(el: Element): string | null {
   return text && text.length <= 50 ? text : null;
 }
 
+/**
+ * outerHTML with the parts no agent reads removed.
+ *
+ * An inline icon carries a few hundred characters of bezier coordinates —
+ * a single lucide icon was 350 of the 912 characters of HTML in a real send.
+ * The tag and its class still say which icon it is, which is all anyone needs.
+ */
+function compactHtml(el: Element): string {
+  const clone = el.cloneNode(true);
+  if (!(clone instanceof Element)) return el.outerHTML;
+  for (const svg of clone.querySelectorAll("svg")) {
+    svg.replaceChildren();
+    for (const attr of [...svg.attributes]) {
+      if (attr.name !== "class" && !attr.name.startsWith("aria-")) svg.removeAttribute(attr.name);
+    }
+  }
+  return clone.outerHTML;
+}
+
 export function buildElementPayload(el: Element): ElementPayload {
   const rect = el.getBoundingClientRect();
   // data-source is only present if the optional Babel plugin is enabled.
@@ -98,6 +166,6 @@ export function buildElementPayload(el: Element): ElementPayload {
       w: Math.round(rect.width),
       h: Math.round(rect.height),
     },
-    html: el.outerHTML,
+    html: compactHtml(el),
   };
 }

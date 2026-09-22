@@ -102,6 +102,10 @@ const FRAMEWORK_RE = new RegExp(
     // and parked the rewrite under a "New" suffix (InnerScrollHandlerNew), so
     // the suffix has to survive one more word.
     "(?:Boundary|Handler|Outlet|Router)(?:New|Old)?$",
+    // Context wrappers. They tell you how the app is assembled, never where
+    // the element you clicked lives, and an app stacks a lot of them.
+    "Provider$",
+    "^Providers$",
     "Scroll(?:AndMaybe|And)?Focus", // scroll/focus handlers
     "RenderFromTemplate",
     "HTTPAccessFallback",
@@ -186,7 +190,12 @@ function describeValue(value: unknown): string {
 }
 
 /** Component ancestry from nearest to outermost, capped and deduped of repeats. */
-export function getComponentStack(node: Node, limit = 6): string[] {
+/**
+ * Ancestry above a node, nearest first. Three is deliberate: the first one or
+ * two name the file to open, and everything past that is app structure the
+ * agent pays for and does not act on.
+ */
+export function getComponentStack(node: Node, limit = 3): string[] {
   const stack: string[] = [];
   let fiber = getFiberFromDom(node);
   while (fiber && stack.length < limit) {
