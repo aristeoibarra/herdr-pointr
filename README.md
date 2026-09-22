@@ -14,7 +14,7 @@ Nothing here drives your browser; context flows one way, from your eyes to the a
 A [herdr](https://herdr.dev) plugin. Agent-agnostic: herdr recognises two dozen coding
 agents, and pointr talks to whichever one owns the project you're looking at.
 
-![The widget open on a dev app: a ProfileCard outlined in the page, and the panel showing the resolved destination, the component and its ancestry, the typed request, the screenshot toggle and the gear that opens settings](docs/panel.png)
+![The widget open on a dev app: a ProfileCard outlined in the page, and the panel showing the resolved destination, the component and its ancestry, the typed request, the screenshot toggle and the gear that opens settings](docs/widget.png)
 
 ## How it works
 
