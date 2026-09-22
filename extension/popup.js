@@ -16,13 +16,11 @@
   var paneNote = $("pane-note");
   var sessionSelect = $("session");
   var autosend = $("autosend");
-  var dicLang = $("diclang");
-  var dicNote = $("dicnote");
   var hotkeyBtn = $("hotkey");
 
   var origin = null;
   var tabId = null;
-  var global = { autoSend: true, dictationLang: "auto", hotkey: DEFAULT_HOTKEY };
+  var global = { autoSend: true, hotkey: DEFAULT_HOTKEY };
   var agent = { id: null, session: null, label: null };
 
   function agentKey() {
@@ -158,49 +156,6 @@
     saveGlobal();
   });
 
-  dicLang.addEventListener("change", function () {
-    global.dictationLang = dicLang.value;
-    saveGlobal();
-  });
-
-  // ── Dictation status ───────────────────────────────────────────────────────
-  /**
-   * The widget knows the whole picture — browser support, the page's own
-   * Permissions-Policy, and the bridge's whisper setup — so ask the tab first
-   * and only fall back to the bridge when no widget answers.
-   */
-  function loadDictationStatus() {
-    var fromTab = tabId === null
-      ? Promise.reject()
-      : chrome.tabs.sendMessage(tabId, { type: "pointr:dictation" }).then(function (state) {
-          if (!state) throw new Error("no widget");
-          return state;
-        });
-    return fromTab
-      .catch(function () {
-        return fetch(BRIDGE + "/dictation")
-          .then(function (r) {
-            return r.json();
-          })
-          .then(function (d) {
-            return {
-              available: d.available === true,
-              reason: d.available
-                ? "Transcribed locally with whisper.cpp (" + (d.model || "model") + "). Audio never leaves this machine."
-                : d.error || "Dictation unavailable.",
-            };
-          });
-      })
-      .then(function (state) {
-        dicNote.textContent = state.reason;
-        dicNote.classList.toggle("err", !state.available);
-        dicLang.disabled = !state.available;
-      })
-      .catch(function () {
-        /* bridge offline — the health line already says so */
-      });
-  }
-
   // ── Boot ───────────────────────────────────────────────────────────────────
   function loadHealth() {
     return fetch(BRIDGE + "/health")
@@ -216,8 +171,6 @@
 
   function render() {
     autosend.checked = global.autoSend !== false;
-    dicLang.value = global.dictationLang || "auto";
-    if (dicLang.value !== (global.dictationLang || "auto")) dicLang.value = "auto"; // unknown saved tag
     renderHotkey();
   }
 
@@ -241,7 +194,6 @@
       return chrome.storage.local.get(keys).then(function (stored) {
         var savedGlobal = stored[GLOBAL_KEY] || {};
         if (typeof savedGlobal.autoSend === "boolean") global.autoSend = savedGlobal.autoSend;
-        if (typeof savedGlobal.dictationLang === "string") global.dictationLang = savedGlobal.dictationLang;
         if (savedGlobal.hotkey && typeof savedGlobal.hotkey.code === "string") global.hotkey = savedGlobal.hotkey;
         if (origin && stored[agentKey()]) agent = stored[agentKey()];
 
@@ -256,7 +208,6 @@
           paneField.classList.add("off");
         }
 
-        void loadDictationStatus();
       });
     })
     .catch(function (error) {

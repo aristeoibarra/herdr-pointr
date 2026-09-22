@@ -6,7 +6,6 @@ import { portStrategy } from "./ports.ts";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { shutdownWatchers } from "./watch.ts";
-import { dictationStatus } from "./transcribe.ts";
 
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
@@ -192,9 +191,6 @@ async function doctor(): Promise<void> {
   const strategy = portStrategy();
   log(`port lookup    ${strategy === "none" ? `UNSUPPORTED on ${process.platform}` : `ok (${strategy})`}`);
 
-  const config = await loadConfig();
-  const dictation = await dictationStatus(config);
-  log(`dictation      ${dictation.available ? `ok (${dictation.model ?? "model"})` : `off — ${dictation.error ?? "unavailable"}`}`);
   log(`config         ${configFile()}`);
 }
 
@@ -210,7 +206,7 @@ function printHelp(): void {
       "  pin [w1:p1|--clear]                Pin/clear a destination agent (rarely needed)",
       "  pick                               Choose a destination from a list",
       "  open <url>                         Open a URL in the browser",
-      "  doctor                             Check herdr, port lookup and dictation",
+      "  doctor                             Check herdr and port lookup",
       "",
       "Routing is automatic: the page's dev-server port maps to the directory it",
       "was launched from, which maps to the agent working there. Pin only when",

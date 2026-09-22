@@ -7,7 +7,6 @@
 import { domToPng } from "modern-screenshot";
 
 import { buildElementPayload, type ElementPayload } from "./capture.ts";
-import { createDictation, micBlockedByPagePolicy, POLICY_MESSAGE } from "./dictation.ts";
 import { getDiagnostics, installDiagnostics } from "./diagnostics.ts";
 
 interface PickedItem {
@@ -74,7 +73,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  */
 interface ExtensionPrefs {
   autoSend?: boolean;
-  dictationLang?: string;
   hotkey?: Hotkey | null;
   targetAgent?: AgentPin | null;
   targetAgentLabel?: string | null;
@@ -100,8 +98,6 @@ interface Prefs {
   /** Human label for the pinned agent, so the panel needn't refetch /agents. */
   targetAgentLabel: string | null;
   hotkey: Hotkey;
-  /** BCP-47 tag for dictation, or "auto" to follow the browser. */
-  dictationLang: string;
 }
 
 // Inline SVGs (no external assets — the widget is a single bundle).
@@ -109,10 +105,6 @@ const ICON_AI =
   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2l1.7 5.4 5.4 1.7-5.4 1.7L12 16.4l-1.7-5.4L4.9 9.3l5.4-1.7z"/><path d="M18.6 13.6l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></svg>';
 const ICON_CLOSE =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-const ICON_MIC =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/></svg>';
-const ICON_STOP =
-  '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
 
 (function initWidget(): void {
   const ROOT_ID = "pointr-root";
@@ -202,31 +194,9 @@ const ICON_STOP =
       textarea {
         width: 100%; min-height: 76px; resize: vertical; border-radius: 10px;
         border: 1px solid #3a3a3a; background: #0f0f0f; color: #f5f5f5;
-        padding: 10px 44px 10px 10px; font-size: 13px; outline: none;
+        padding: 10px; font-size: 13px; outline: none;
       }
       textarea:focus { border-color: #d97757; }
-
-      /* Mic sits inside the composer: typing and dictating are the same field. */
-      .mic {
-        position: absolute; right: 9px; bottom: 11px;
-        width: 28px; height: 28px; border-radius: 50%;
-        border: 1px solid #3a3a3a; background: #1f1f1f; color: #b5b5b5;
-        display: flex; align-items: center; justify-content: center; cursor: pointer;
-        transition: background .12s, color .12s, border-color .12s;
-      }
-      .mic:hover { color: #f5b78f; border-color: #d97757; }
-      .mic svg { width: 15px; height: 15px; display: block; }
-      /* Ring grows with the live input level, so silence is visible as silence. */
-      .mic.on {
-        background: #d97757; border-color: #d97757; color: #fff;
-        box-shadow: 0 0 0 calc(2px + var(--level, 0) * 7px) rgba(217,119,87,.35);
-      }
-      .mic.busy {
-        border-color: #d97757; color: #f5b78f;
-        animation: mic-blink 1s ease-in-out infinite;
-      }
-      @keyframes mic-blink { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
-      .interim { margin-top: 6px; font-size: 12px; color: #8a8a8a; font-style: italic; }
 
       .opts {
         display: flex; align-items: center; gap: 10px;
@@ -284,10 +254,8 @@ const ICON_STOP =
         </div>
       </div>
       <div class="compose">
-        <textarea placeholder="Describe the change you want — type or dictate…"></textarea>
-        <button class="mic" title="Dictate"></button>
+        <textarea placeholder="Describe the change you want…"></textarea>
       </div>
-      <div class="interim" hidden></div>
       <div class="opts">
         <label title="Attach a PNG to this send.">
           <input type="checkbox" class="shot"> screenshot
@@ -313,8 +281,6 @@ const ICON_STOP =
   const nameEl = q<HTMLDivElement>(".name");
   const metaEl = q<HTMLDivElement>(".meta");
   const textarea = q<HTMLTextAreaElement>("textarea");
-  const micBtn = q<HTMLButtonElement>(".mic");
-  const interimEl = q<HTMLDivElement>(".interim");
   const shotCheck = q<HTMLInputElement>(".shot");
   const shotSeg = q<HTMLDivElement>(".seg");
   const shotElementBtn = q<HTMLButtonElement>(".shot-element");
@@ -324,7 +290,6 @@ const ICON_STOP =
   const dest = q<HTMLDivElement>(".dest");
 
   fab.innerHTML = ICON_AI;
-  micBtn.innerHTML = ICON_MIC;
 
   const PREFS_KEY = "pointr-prefs";
   const prefs: Prefs = {
@@ -334,7 +299,6 @@ const ICON_STOP =
     targetAgent: null,
     targetAgentLabel: null,
     hotkey: { ...DEFAULT_HOTKEY },
-    dictationLang: "auto",
   };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<Prefs> & {
@@ -349,7 +313,6 @@ const ICON_STOP =
       prefs.shot = saved.shotMode !== "off";
       if (saved.shotMode !== "off") prefs.shotTarget = saved.shotMode;
     }
-    if (typeof saved.dictationLang === "string") prefs.dictationLang = saved.dictationLang;
     if (saved.targetAgent && typeof saved.targetAgent.paneId === "string") {
       prefs.targetAgent = saved.targetAgent;
     }
@@ -426,7 +389,6 @@ const ICON_STOP =
 
   function applyExtensionPrefs(incoming: ExtensionPrefs): void {
     if (typeof incoming.autoSend === "boolean") prefs.autoSend = incoming.autoSend;
-    if (typeof incoming.dictationLang === "string") prefs.dictationLang = incoming.dictationLang;
     if (incoming.hotkey && typeof incoming.hotkey.code === "string") {
       prefs.hotkey = normalizeHotkey(incoming.hotkey);
     }
@@ -474,111 +436,6 @@ const ICON_STOP =
     }
   }
 
-  // ── Dictation: same composer, voice instead of keyboard ──────────────────
-  function appendDictated(chunk: string): void {
-    const text = chunk.trim();
-    if (!text) return;
-    const current = textarea.value;
-    const sep = current === "" || /\s$/.test(current) ? "" : " ";
-    textarea.value = `${current}${sep}${text}`;
-    textarea.scrollTop = textarea.scrollHeight;
-  }
-
-  let recordingSince = 0;
-  let recordingTimer = 0;
-
-  function recordingTick(): void {
-    const seconds = Math.floor((Date.now() - recordingSince) / 1000);
-    const mmss = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-    interimEl.textContent = `● recording ${mmss} — click the mic or press Esc to transcribe`;
-  }
-
-  const dictation = createDictation(BRIDGE_ORIGIN, {
-    onState(state) {
-      const recording = state === "recording";
-      micBtn.classList.toggle("on", recording);
-      micBtn.classList.toggle("busy", state === "transcribing");
-      micBtn.innerHTML = recording ? ICON_STOP : ICON_MIC;
-      micBtn.title = recording ? "Stop and transcribe (Esc)" : "Dictate";
-      window.clearInterval(recordingTimer);
-      interimEl.hidden = state === "idle";
-      if (recording) {
-        recordingSince = Date.now();
-        recordingTick();
-        recordingTimer = window.setInterval(recordingTick, 1000);
-      } else if (state === "transcribing") {
-        interimEl.textContent = "transcribing locally…";
-      } else {
-        micBtn.style.removeProperty("--level");
-      }
-    },
-    onLevel(level) {
-      micBtn.style.setProperty("--level", level.toFixed(2));
-    },
-    onText(text) {
-      appendDictated(text);
-      textarea.focus();
-    },
-    onError(message) {
-      setStatus(message, "err");
-    },
-  });
-
-  /**
-   * No getUserMedia (or no bridge-side whisper) — hide the mic rather than fail on
-   * click. Whether the mic works is page-local (the Permissions-Policy case is
-   * invisible to both the popup and the bridge), so report it up to the extension:
-   * that reason is what the popup shows under "Dictation language".
-   */
-  function reportDictation(available: boolean, reason: string): void {
-    toExtension({ type: "dictation", available, reason });
-    if (available) return;
-    micBtn.classList.add("hidden");
-    textarea.placeholder = "Describe the change you want…";
-    console.info(`[pointr] dictation off — ${reason}`);
-  }
-
-  if (!dictation.supported) reportDictation(false, "This browser cannot capture audio.");
-  // The page's own header can veto the mic; no point offering a button that can't work.
-  else if (micBlockedByPagePolicy()) reportDictation(false, POLICY_MESSAGE);
-
-  async function checkDictationBackend(): Promise<void> {
-    if (!dictation.supported || micBlockedByPagePolicy()) return;
-    try {
-      const r = await fetch(`${BRIDGE_ORIGIN}/dictation`);
-      const d = (await r.json()) as { available?: boolean; model?: string; error?: string };
-      if (d.available) {
-        reportDictation(
-          true,
-          `Transcribed locally with whisper.cpp (${d.model ?? "model"}). Audio never leaves this machine.`,
-        );
-        return;
-      }
-      // A bridge from before dictation existed 404s here — say so instead of "not found".
-      reportDictation(
-        false,
-        d.error === "not found"
-          ? "Bridge is out of date — restart it to enable dictation."
-          : (d.error ?? "Dictation unavailable."),
-      );
-    } catch {
-      /* bridge hiccup — keep the mic, the error will surface on use */
-    }
-  }
-
-  const dictationLang = (): string =>
-    prefs.dictationLang === "auto" ? navigator.language || "auto" : prefs.dictationLang;
-
-  function toggleDictation(): void {
-    if (dictation.state() === "recording") {
-      dictation.stop();
-      return;
-    }
-    if (dictation.state() === "transcribing") return;
-    setStatus("", "");
-    dictation.start(dictationLang());
-  }
-
   // ── State machine: idle ↔ selecting ↔ composing ──────────────────────────
   let selecting = false;
   let focused: Element | null = null;
@@ -589,7 +446,6 @@ const ICON_STOP =
 
   /** Return to the resting state: launcher visible, nothing selected/open. */
   function goIdle(): void {
-    dictation.cancel(); // never leave the mic open behind a closed panel
     closeStream(); // and never leave a status stream behind one either
     selecting = false;
     fab.innerHTML = ICON_AI;
@@ -649,12 +505,6 @@ const ICON_STOP =
 
   function onKey(e: KeyboardEvent): void {
     if (e.key === "Escape") {
-      // While recording, Esc means "stop and transcribe" — not "throw away the draft".
-      if (dictation.state() === "recording") {
-        e.preventDefault();
-        dictation.stop();
-        return;
-      }
       goIdle();
       return;
     }
@@ -772,16 +622,6 @@ const ICON_STOP =
   }
 
   async function send(): Promise<void> {
-    // Sending mid-dictation would drop what you just said — finish the round trip first.
-    if (dictation.state() === "recording") {
-      dictation.stop();
-      setStatus("Transcribing — press Send again when the text lands.", "");
-      return;
-    }
-    if (dictation.state() === "transcribing") {
-      setStatus("Still transcribing…", "");
-      return;
-    }
     const elements = [...picked.map((p) => p.payload)];
     if (focused) elements.push(buildElementPayload(focused));
     if (elements.length === 0) {
@@ -1022,7 +862,6 @@ const ICON_STOP =
   q<HTMLButtonElement>(".child").addEventListener("click", focusChild);
   q<HTMLButtonElement>(".add").addEventListener("click", addAnother);
   sendBtn.addEventListener("click", () => void send());
-  micBtn.addEventListener("click", toggleDictation);
   shotCheck.addEventListener("change", () => {
     prefs.shot = shotCheck.checked;
     savePrefs();
@@ -1041,7 +880,6 @@ const ICON_STOP =
   window.addEventListener("scroll", () => focused && drawOverlay(focused), true);
 
   fab.title = selectTitle();
-  void checkDictationBackend();
   console.info(
     `[pointr] widget ready — ${hotkeyLabel(prefs.hotkey)} or the button to select an element. Settings live in the extension popup.`,
   );

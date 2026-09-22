@@ -23,7 +23,7 @@ committing. Shell scripts go through `shellcheck`.
 
 Runtime CLI (`dist/cli.js`, or `pointr` once installed): `start|stop|status` manage the background
 bridge, `serve` runs it in the foreground, `agents` lists what herdr can see, `pin`/`pick` choose a
-destination, `doctor` checks herdr + port lookup + dictation. `GET /debug?port=N` returns the full
+destination, `doctor` checks herdr and port lookup. `GET /debug?port=N` returns the full
 resolution trace, which is the fastest way to answer "why did it route there?".
 
 **Gotcha:** `npm run dev` runs the server from source via tsx, but the server still serves the widget
@@ -135,23 +135,6 @@ it that way, props can hold huge object graphs). React 19 removed `_debugSource`
 wrappers, because Next renames them across versions; extend the pattern rather than hardcoding
 names. Exact `file:line` is only available if a project opts into a `data-source` Babel plugin.
 
-## Dictation (client/dictation.ts + src/transcribe.ts)
-
-Record in the browser, transcribe on the bridge with whisper.cpp. **Don't "simplify" this back to
-the Web Speech API**: it's Google's hosted recognizer, Chromium-only in practice, and Brave disables
-it — it fails `not-allowed` with no permission prompt, which is exactly what this replaced.
-
-- **Client**: `getUserMedia` → `AudioContext({ sampleRate: 16000 })` → `ScriptProcessorNode`
-  accumulating Float32 chunks → 16-bit mono WAV → base64 → `POST /transcribe`. The processor is
-  connected through a **muted gain node** because a ScriptProcessor only runs while connected to the
-  graph, and going straight to `destination` would echo the mic. `generation` is bumped on `cancel()`
-  so a late transcription can't land in a composer the user already closed.
-- **Server**: `resolveSetup` finds the binary (`whisper-cli`, then `whisper-cpp`) and the best model,
-  and caches the pair. Model ranking prefers `small` for latency and skips `.en` models (they'd
-  mistranscribe Spanish). Both halves are overridable via `whisperBin`/`whisperModel` in the config.
-- `GET /dictation` reports availability so the widget can hide the mic instead of failing on click.
-  `/transcribe` gets its own 40 MB body cap — audio dwarfs the 5 MB JSON limit.
-
 ## Widget delivery & config
 
 - Three ways to load the widget, all hitting the same `/widget.js`: the **browser extension**
@@ -179,7 +162,7 @@ it — it fails `not-allowed` with no permission prompt, which is exactly what t
 The widget has **no Settings UI** — `extension/popup.html`+`popup.js` own it, and the widget only
 reads. Don't re-add a gear to the widget.
 
-- Storage is `chrome.storage.local`, split by scope: `global` (`autoSend`, `dictationLang`, `hotkey`
+- Storage is `chrome.storage.local`, split by scope: `global` (`autoSend`, `hotkey`
   — user preferences) and `agent:<origin>` (`{id, session, label}` — which agent this project sends
   to, hence per-origin). Splitting them is the point: nobody wants to re-record the shortcut per
   project.
@@ -187,7 +170,7 @@ reads. Don't re-add a gear to the widget.
   the widget never has to call `/agents`; a status baked into it would be wrong seconds later, so
   status is rendered live by the popup instead.
 - The widget runs in the page's **MAIN world** (it's a `<script src>`), so `window.postMessage` is
-  the only channel to `content.js`. Protocol: widget → `prefs:get`, `pin:clear`, `dictation`;
+  the only channel to `content.js`. Protocol: widget → `prefs:get`, `pin:clear`;
   extension → `prefs`. `content.js` re-pushes on `chrome.storage.onChanged`, so popup edits land live
   in every open tab.
 - Identifiers that must agree across the MAIN-world bundle and the isolated content script

@@ -38,7 +38,6 @@
           type: "prefs",
           prefs: {
             autoSend: global.autoSend,
-            dictationLang: global.dictationLang,
             hotkey: global.hotkey,
             targetAgent: agent.id ? { paneId: agent.id, session: agent.session || null } : null,
             targetAgentLabel: agent.label || null,
@@ -48,11 +47,6 @@
       );
     });
   }
-
-  // What the widget last reported about dictation on this page. The popup asks
-  // for it because the blocking reason can be page-local (Permissions-Policy)
-  // and is therefore invisible to both the popup and the bridge.
-  var dictation = null;
 
   window.addEventListener("message", function (event) {
     if (event.source !== window) return;
@@ -70,18 +64,11 @@
       chrome.storage.local.set(cleared);
       return;
     }
-    if (data.type === "dictation") {
-      dictation = { available: data.available === true, reason: data.reason || "" };
-    }
   });
 
   chrome.storage.onChanged.addListener(function (changes, area) {
     if (area !== "local") return;
     if (changes[GLOBAL_KEY] || changes[AGENT_KEY]) push();
-  });
-
-  chrome.runtime.onMessage.addListener(function (message, _sender, respond) {
-    if (message && message.type === "pointr:dictation") respond(dictation);
   });
 
   push();

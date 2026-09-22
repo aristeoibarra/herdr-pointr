@@ -13,7 +13,6 @@ import { resolveTarget, type AgentPin, type Resolution } from "./routing.ts";
 import { attach, retain, seed } from "./watch.ts";
 import { formatPrompt, isSendPayload, type SendPayload } from "./format.ts";
 import { bookmarkletPage } from "./bookmarklet.ts";
-import { dictationStatus, transcribeWav } from "./transcribe.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Pre-built widget: bundled next to dist/cli.js, or under ../dist in dev (tsx).
@@ -22,8 +21,6 @@ const WIDGET_CANDIDATES = [
   join(__dirname, "..", "dist", "widget.global.js"),
 ];
 const MAX_BODY_BYTES = 5_000_000;
-/** Dictation audio is 16-bit 16 kHz mono — ~32 KB/s, so this covers minutes of talking. */
-const MAX_AUDIO_BYTES = 40_000_000;
 /**
  * How long a watcher is held open around a send. Long enough for the agent to
  * start working and for the browser's EventSource to connect, short enough that
@@ -196,17 +193,8 @@ export function createServer(config: BridgeConfig) {
       await handleStatus(req, res, searchParams);
       return;
     }
-    if (req.method === "GET" && pathname === "/dictation") {
-      // Lets the widget hide the mic instead of failing on click.
-      sendJson(res, 200, { ok: true, ...(await dictationStatus(config)) });
-      return;
-    }
     if (req.method === "POST" && pathname === "/send") {
       await handleSend(req, res);
-      return;
-    }
-    if (req.method === "POST" && pathname === "/transcribe") {
-      await handleTranscribe(req, res);
       return;
     }
     sendJson(res, 404, { ok: false, reason: "not_found", error: "not found" });
@@ -251,32 +239,6 @@ export function createServer(config: BridgeConfig) {
     if (!accepted) {
       res.write(`event: error\ndata: ${JSON.stringify({ reason: "too_many_watchers" })}\n\n`);
       res.end();
-    }
-  }
-
-  async function handleTranscribe(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(await readBody(req, MAX_AUDIO_BYTES));
-    } catch (error) {
-      sendJson(res, 400, { ok: false, reason: "invalid_request", error: errorMessage(error) });
-      return;
-    }
-    if (!isTranscribePayload(parsed)) {
-      sendJson(res, 400, { ok: false, reason: "invalid_request", error: "missing audio" });
-      return;
-    }
-    const wav = Buffer.from(parsed.audio, "base64");
-    if (wav.length < 4_000) {
-      // Under ~0.1s of audio: the mic was opened and closed, nothing was said.
-      sendJson(res, 200, { ok: true, text: "" });
-      return;
-    }
-    try {
-      const text = await transcribeWav(wav, parsed.language ?? "auto", config);
-      sendJson(res, 200, { ok: true, text });
-    } catch (error) {
-      sendJson(res, 200, { ok: false, error: errorMessage(error) });
     }
   }
 
@@ -471,15 +433,6 @@ function setCors(res: ServerResponse): void {
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(payload));
-}
-
-function isTranscribePayload(value: unknown): value is { audio: string; language?: string } {
-  if (typeof value !== "object" || value === null) return false;
-  const payload: Record<string, unknown> = { ...value };
-  return (
-    typeof payload.audio === "string" &&
-    (payload.language === undefined || typeof payload.language === "string")
-  );
 }
 
 /** Thrown past the limit so the request handler can answer 413 instead of 500. */

@@ -31,7 +31,6 @@ an approval dialog it can't answer for you.
 ## Requirements
 
 herdr 0.9.0+, Node 20+, Linux or macOS, and a coding agent running in a herdr pane.
-Dictation additionally wants `whisper-cpp` and a ggml model.
 
 ## Install
 
@@ -87,7 +86,6 @@ Changes apply live to open tabs, no reload.
 | --- | --- |
 | **Destination agent** — pin one instead of auto-routing | per origin |
 | **auto-send** — off pastes for review first | global |
-| **Dictation language** | global |
 | **Selection shortcut** — defaults to `Alt+C` | global |
 
 You can also pin from herdr itself: `pointr: send here` acts on the focused pane, and
@@ -98,8 +96,7 @@ Loaded via bookmarklet or project mount there is no popup, so the widget runs on
 ## Daily use
 
 `Alt+C` or the button → hover → click. Refine with **↑ parent / ↓ child**, or **+ add**
-for several elements. Type the change (or dictate it with the mic), tick **screenshot** if
-it's visual, send. The panel shows **→ \<project\>** before you send, and afterwards the
+for several elements. Type the change, tick **screenshot** if it's visual, send. The panel shows **→ \<project\>** before you send, and afterwards the
 status line follows the agent until it settles.
 
 ## What lands in the agent
@@ -134,30 +131,6 @@ For deterministic locations, mount
 it stamps host elements with `data-source="src/Card.tsx:3"` and the widget picks it up.
 On Next 16.2+ Turbopack loads it as an external transform at no measurable cost.
 
-## Dictation (local, no cloud)
-
-Click the mic inside the textarea, talk, click again (or press **Esc**) to transcribe —
-the text appends to your draft. The browser records; the bridge transcribes with
-[whisper.cpp](https://github.com/ggml-org/whisper.cpp) on your machine. No audio leaves
-the box. That's deliberate: the Web Speech API is Google's hosted recognizer, and Brave
-disables it outright.
-
-```bash
-# Arch: pacman -S whisper.cpp     macOS: brew install whisper-cpp
-curl -L -o ~/.local/share/whisper-cpp/ggml-small.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
-```
-
-Model lookup is automatic across the usual share dirs; it prefers `small` for latency and
-skips English-only `.en` builds. Override `whisperBin`/`whisperModel` in the plugin's
-config directory (`herdr plugin config-dir aristeoibarra.pointr`). If whisper is missing
-the mic hides itself and the popup says why.
-
-**If your app sends `Permissions-Policy: microphone=()`** the mic is dead — that's an
-empty allowlist, so not even the page itself may record and `getUserMedia` throws
-`NotAllowedError` regardless of the site permission. Use `microphone=(self)` in dev. Your
-CSP also needs `connect-src` to reach `http://localhost:7331`.
-
 ## Commands
 
 Run through herdr as plugin actions, or directly as `pointr` if you put `dist/cli.js` on
@@ -169,7 +142,7 @@ your PATH.
 | `serve [--port N] [--project PATH]` | Run it in the foreground instead |
 | `agents` | List the agents herdr can see |
 | `pin [w1:p1\|--clear]` / `pick` | Choose a destination (rarely needed) |
-| `doctor` | Check herdr, port lookup and dictation |
+| `doctor` | Check herdr and port lookup |
 
 Routing not doing what you expect? `GET /debug?port=<N>` returns the full decision trace.
 

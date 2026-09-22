@@ -22,10 +22,6 @@ export interface BridgeConfig {
    * socket path has to be configured rather than inherited.
    */
   herdrSocketPath: string | null;
-  /** Path to whisper.cpp's CLI. Null = look it up in PATH / the usual prefixes. */
-  whisperBin: string | null;
-  /** Path to a ggml model. Null = pick the best one found on disk. */
-  whisperModel: string | null;
 }
 
 export const DEFAULT_PORT = 7331;
@@ -48,8 +44,6 @@ const DEFAULT_CONFIG: BridgeConfig = {
   projectPath: null,
   port: DEFAULT_PORT,
   herdrSocketPath: null,
-  whisperBin: null,
-  whisperModel: null,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -86,8 +80,6 @@ export async function loadConfig(): Promise<BridgeConfig> {
     projectPath: readString(parsed["projectPath"]),
     port: typeof port === "number" && Number.isInteger(port) ? port : DEFAULT_PORT,
     herdrSocketPath: readString(parsed["herdrSocketPath"]),
-    whisperBin: readString(parsed["whisperBin"]),
-    whisperModel: readString(parsed["whisperModel"]),
   } satisfies BridgeConfig;
 }
 

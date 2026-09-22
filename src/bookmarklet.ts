@@ -54,7 +54,7 @@ export function bookmarkletPage(port: number): string {
   <p><small>Routing is automatic: the bridge maps the dev-server port to its project
   directory and finds the agent working there. No per-project setup needed.</small></p>
 
-  <p><small>Settings — target session, auto-send, dictation language, the selection
+  <p><small>Settings — destination agent, auto-send, the selection
   shortcut — live in the <strong>browser extension's toolbar popup</strong>
   (<code>Load unpacked</code> the <code>extension/</code> folder). Loaded via the
   bookmarklet alone, the widget runs on defaults.</small></p>
