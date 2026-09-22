@@ -1,4 +1,4 @@
-/** Setup page served at `/` — drag the bookmarklet to your bookmarks bar once. */
+/** The page served at `/`: running dev servers to open, plus the bookmarklet. */
 
 export function bookmarkletCode(port: number): string {
   return (
@@ -20,14 +20,14 @@ export function bookmarkletPage(port: number): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pointr — setup</title>
+<title>pointr</title>
 <style>
   body { font: 15px/1.6 ui-sans-serif, system-ui, sans-serif; background: #121212; color: #eee;
          max-width: 640px; margin: 40px auto; padding: 0 20px; }
   h1 { color: #d97757; font-size: 22px; }
   code { background: #1f1f1f; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-  .bm { display: inline-block; background: #d97757; color: #fff; text-decoration: none;
-        padding: 10px 18px; border-radius: 999px; font-weight: 700; margin: 10px 0; cursor: grab; }
+  .bm { display: inline-block; background: #2a2a2a; color: #eee; text-decoration: none;
+        padding: 4px 12px; border-radius: 999px; font-weight: 700; cursor: grab; }
   ol { padding-left: 20px; } li { margin: 8px 0; }
   .status { margin-top: 16px; font-size: 13px; }
   .ok { color: #6ee7a8; } .err { color: #ff8a8a; }
@@ -52,29 +52,20 @@ export function bookmarkletPage(port: number): string {
 </head>
 <body>
   <h1>pointr</h1>
-  <p>Bridge is running on <code>http://localhost:${port}</code> <span id="st" class="status"></span></p>
+  <p class="muted">Bridge on <code>localhost:${port}</code> <span id="st" class="status"></span></p>
 
-  <p><strong>Your dev servers</strong> — open one and the widget comes already injected, no extension:</p>
+  <p><strong>Your dev servers.</strong> Open one and the widget is already in the page —
+  <code>Alt+C</code>, click an element, describe the change.</p>
   <ul id="servers" class="servers"><li class="muted">looking…</li></ul>
   <p id="pinned" class="muted" hidden></p>
   <form action="/open" method="get" class="open">
-    <input name="url" placeholder="Not listed? A port or URL: 3000, http://localhost:3000/path" required>
+    <input name="url" placeholder="Not listed? Type a port or URL" required>
     <button type="submit">Open</button>
   </form>
-  <p><small>That serves your dev server on its port + 10000 (3000 → 13000) with the widget
-  added to each page. From a terminal: <code>pointr open 3000</code>, or ctrl-click the
-  localhost URL an agent prints in herdr.</small></p>
 
   <hr>
-  <p><strong>Or keep your usual URL</strong> and drag this to your bookmarks bar, then click it on the page:</p>
-  <a class="bm" href="${code}">◎ Select → agent</a>
-  <p><small>The bookmarklet loads after the page, so console errors from before you click
-  it are not captured. The proxy has no such gap.</small></p>
-
-  <hr>
-  <p><small>Routing is automatic: the bridge maps the dev-server port to its project
-  directory and finds the agent working there. Settings — destination, send-on-click,
-  the shortcut — are behind the gear in the widget's panel.</small></p>
+  <p class="muted">To keep your app's own URL instead, drag this to your bookmarks bar and
+  click it on the page: <a class="bm" href="${code}">◎ pointr</a></p>
 
 <script>
   const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
