@@ -76,11 +76,30 @@ description = "pointr: send here"
 
 ## Load the widget
 
-**Extension (recommended):** open `brave://extensions` (or `chrome://extensions`), enable
-Developer mode, **Load unpacked** → the `extension/` folder. It now appears on every
-`localhost` app automatically.
+Nothing to install in the browser. Open your app through pointr — for a dev server on
+port 3000:
+
+```text
+http://localhost:7331/open?url=3000
+```
+
+Bookmark it, Ctrl-click the localhost URL an agent prints in herdr (below), type the port
+at `http://localhost:7331`, or run `pointr open 3000`. The page opens on its port + 10000
+— `localhost:3000` becomes `localhost:13000` — served by the bridge with the widget added
+to each page and everything else passed through untouched: assets, API calls, hot reload. Proxies open
+on demand, bind to loopback only, close after 30 idle minutes, and come back on the same
+port when herdr restarts, so an open tab survives it.
+
+The one thing that differs is the origin, and that matters if your app registers
+`localhost:3000` somewhere else — an OAuth redirect URI, say — or keeps state in
+`localStorage` you want to see. For those:
 
 **Bookmarklet:** open `http://localhost:7331` and drag the button to your bookmarks bar.
+Keeps your URL; misses console errors from before you click it.
+
+**Extension:** open `brave://extensions` (or `chrome://extensions`), enable Developer
+mode, **Load unpacked** → the `extension/` folder. Injects on every `localhost` page, at
+your usual URL, from the first line of the app's code.
 
 **CSP-strict projects:** copy [`examples/Pointr.tsx`](examples/Pointr.tsx) into the repo
 and render it in the root layout, dev-only.
@@ -97,9 +116,9 @@ configuring actually is.
 | **Shortcut** — defaults to `Alt+C` | global |
 
 With the extension installed these persist in `chrome.storage` and apply live to
-every open tab. Loaded by bookmarklet or by mounting the component they live in
-the page's `localStorage` instead, which is why the settings are here and not in
-the toolbar popup: those two paths have no popup.
+every open tab. Loaded through the proxy, the bookmarklet or the component they
+live in the page's `localStorage` instead, which is why the settings are here and
+not in the toolbar popup: those paths have no popup.
 
 You can also pin from herdr itself: `pointr: send here` acts on the focused
 pane, and `pointr: choose a destination` opens a picker.
@@ -108,8 +127,8 @@ pane, and `pointr: choose a destination` opens a picker.
 
 When an agent prints `http://localhost:3000` in its pane, Ctrl-click it (Control on
 macOS too — terminal mouse reports cannot tell Cmd from a plain click) and herdr hands
-the URL to pointr instead of the browser's default handler. The page opens with the
-widget already injected.
+the URL to pointr instead of the browser's default handler. The page opens through the
+proxy, with the widget already injected — no extension involved.
 
 ## Daily use
 
@@ -160,6 +179,7 @@ your PATH.
 | `serve [--port N] [--project PATH]` | Run it in the foreground instead |
 | `agents` | List the agents herdr can see |
 | `pin [w1:p1\|--clear]` / `pick` | Choose a destination (rarely needed) |
+| `open <url\|port>` | Open a dev server through the proxy, widget injected |
 | `doctor` | Check herdr and port lookup |
 
 Routing not doing what you expect? `GET /debug?port=<N>` returns the full decision trace.
@@ -167,7 +187,8 @@ Routing not doing what you expect? `GET /debug?port=<N>` returns the full decisi
 ## Security
 
 Development-only. The bridge binds to `localhost`, accepts any local origin, and sends
-what it receives to your agent. Run it only on a machine you control; don't expose the
+what it receives to your agent. The proxies bind to `127.0.0.1` only, so a dev server
+that is private to your machine stays that way. Run it only on a machine you control; don't expose the
 port.
 
 ## License

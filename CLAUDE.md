@@ -80,7 +80,10 @@ Zero per-project config, tolerant of panes that come and go. Order:
 1. **Per-tab override** from the extension popup, then the **pinned agent** from config — each only
    if that pane still exists.
 2. **port → cwd → agent** — parse the dev-server port from the page URL, find the process listening
-   on it, take its cwd, and match the agent working there.
+   on it, take its cwd, and match the agent working there. A proxy port is first translated back to
+   the port it fronts (`upstreamUrl`, via `portAliases`), and the bridge's own pid is never taken
+   as evidence. Both matter for the same reason: a proxy port is served by the bridge, whose cwd is
+   pointr's checkout, so an untranslated one routes every project to the agent working on pointr.
 3. **Configured `projectPath`**.
 4. **The only agent**, if exactly one exists.
 
@@ -161,10 +164,21 @@ names. Exact `file:line` is only available if a project opts into a `data-source
 
 ## Widget delivery & config
 
-- Three ways to load the widget, all hitting the same `/widget.js`: the **browser extension**
-  (`extension/`, MV3 content script, auto-injects on `localhost`/`127.0.0.1`, skips port 7331), the
-  **bookmarklet** (`src/bookmarklet.ts`, served at `/`), or mounting `examples/Pointr.tsx` from a
-  project (CSP-strict fallback).
+- Four ways to load the widget, all hitting the same `/widget.js`. The default is the **injection
+  proxy** (`src/proxy.ts`): `pointr open 3000`, a ctrl-clicked link, or `GET /open?url=` serve the
+  dev server on port + 10000 with the widget's `<script>` first in `<head>` of each navigation.
+  Then the **browser extension** (`extension/`, MV3 content script, auto-injects on
+  `localhost`/`127.0.0.1`, skips port 7331), the **bookmarklet** (`src/bookmarklet.ts`, served at
+  `/`), or mounting `examples/Pointr.tsx` from a project.
+- The proxy touches **only** top-level navigations (`Sec-Fetch-Dest: document`) that return HTML:
+  those are requested uncompressed, decoded if the server compresses anyway, get the tag
+  spliced in at byte level (searched as latin1, so the page's encoding is never re-encoded) and
+  lose their CSP. Everything else — assets, fetches, iframes — is piped untouched, and WebSocket
+  upgrades (HMR) are a raw TCP tunnel. Host/Origin/Referer are rewritten to the dev server's port
+  going in (Next server actions and Vite's WS check compare them) and absolute `Location` headers
+  back to the proxy's coming out. It binds `127.0.0.1` only — a dev server on localhost is private
+  on purpose. Open proxies persist in the state dir (`proxies.json`) and reopen on the same port
+  at startup; an idle one with no connections closes after 30 minutes.
 - The widget derives the bridge origin from its own `<script src>`, so it works on any port with no
   build-time define.
 - Config lives in `HERDR_PLUGIN_CONFIG_DIR` when running as a plugin, else
