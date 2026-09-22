@@ -3,16 +3,16 @@
 import { useEffect } from "react";
 
 /**
- * Dev-only loader for the claude-tmux-bridge widget.
+ * Dev-only loader for the pointr widget.
  * Renders nothing in production and injects no script when not in development,
  * so it never touches your production bundle behaviour.
  *
- * Usage: place <ClaudeBridge /> in your root layout.
+ * Usage: place <Pointr /> in your root layout.
  */
-export function ClaudeBridge({ port = 7331 }: { port?: number }) {
+export function Pointr({ port = 7331 }: { port?: number }) {
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
-    const id = "claude-tmux-bridge-script";
+    const id = "pointr-script";
     if (document.getElementById(id)) return;
 
     const script = document.createElement("script");
@@ -23,7 +23,7 @@ export function ClaudeBridge({ port = 7331 }: { port?: number }) {
 
     return () => {
       script.remove();
-      document.getElementById("claude-tmux-bridge-root")?.remove();
+      document.getElementById("pointr-root")?.remove();
     };
   }, [port]);
 

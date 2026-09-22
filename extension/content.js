@@ -1,4 +1,4 @@
-// Auto-injects the claude-tmux-bridge widget on every localhost page, and bridges
+// Auto-injects the pointr widget on every localhost page, and bridges
 // the extension's stored settings into it — the widget has no Settings UI of its
 // own, it all lives in the toolbar popup.
 //
@@ -8,14 +8,14 @@
   var BRIDGE_PORT = "7331";
   // Don't inject on the bridge's own setup page.
   if (location.port === BRIDGE_PORT) return;
-  if (window.__ctbInjected) return;
-  window.__ctbInjected = true;
+  if (window.__pointrInjected) return;
+  window.__pointrInjected = true;
 
   var GLOBAL_KEY = "global";
   var PANE_KEY = "pane:" + location.origin;
-  var LEGACY_KEY = "ctb-prefs";
-  var FROM_WIDGET = "ctb-widget";
-  var FROM_EXT = "ctb-ext";
+  var LEGACY_KEY = "pointr-prefs";
+  var FROM_WIDGET = "pointr-widget";
+  var FROM_EXT = "pointr-ext";
 
   // Inject first and synchronously: the widget installs console/fetch/error hooks
   // on load, and those are only worth anything if they beat the app's own code.
@@ -112,7 +112,7 @@
   });
 
   chrome.runtime.onMessage.addListener(function (message, _sender, respond) {
-    if (message && message.type === "ctb:dictation") respond(dictation);
+    if (message && message.type === "pointr:dictation") respond(dictation);
   });
 
   migrateLegacyPrefs();

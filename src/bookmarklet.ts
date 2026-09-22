@@ -3,10 +3,10 @@
 export function bookmarkletCode(port: number): string {
   return (
     "javascript:(function(){var d=document;" +
-    "if(d.getElementById('claude-tmux-bridge-root'))return;" +
+    "if(d.getElementById('pointr-root'))return;" +
     "var s=d.createElement('script');" +
     `s.src='http://localhost:${port}/widget.js?t='+Date.now();` +
-    "s.onerror=function(){alert('claude-tmux-bridge: bridge not reachable on :" +
+    "s.onerror=function(){alert('pointr: bridge not reachable on :" +
     port +
     "');};" +
     "d.body.appendChild(s);})();"
@@ -20,7 +20,7 @@ export function bookmarkletPage(port: number): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>claude-tmux-bridge — setup</title>
+<title>pointr — setup</title>
 <style>
   body { font: 15px/1.6 ui-sans-serif, system-ui, sans-serif; background: #121212; color: #eee;
          max-width: 640px; margin: 40px auto; padding: 0 20px; }
@@ -36,23 +36,23 @@ export function bookmarkletPage(port: number): string {
 </style>
 </head>
 <body>
-  <h1>claude-tmux-bridge</h1>
+  <h1>pointr</h1>
   <p>Bridge is running on <code>http://localhost:${port}</code> <span id="st" class="status"></span></p>
 
   <p><strong>1.</strong> Drag this button to your bookmarks bar:</p>
-  <a class="bm" href="${code}">◎ Select → Claude</a>
+  <a class="bm" href="${code}">◎ Select → agent</a>
 
   <p><strong>2.</strong> Use it on any local dev app:</p>
   <ol>
     <li>Open your app (e.g. <code>http://localhost:3000</code>)</li>
-    <li>Make sure Claude Code runs in a tmux pane <em>inside that project's directory</em></li>
+    <li>Make sure your coding agent runs in a herdr pane <em>inside that project's directory</em></li>
     <li>Click the bookmark — the toolbar appears</li>
     <li><code>Alt+C</code> or the button to select an element, then send</li>
   </ol>
 
   <hr>
   <p><small>Routing is automatic: the bridge maps the dev-server port to its project
-  directory and finds the matching Claude pane. No per-project setup needed.</small></p>
+  directory and finds the agent working there. No per-project setup needed.</small></p>
 
   <p><small>Settings — target session, auto-send, dictation language, the selection
   shortcut — live in the <strong>browser extension's toolbar popup</strong>

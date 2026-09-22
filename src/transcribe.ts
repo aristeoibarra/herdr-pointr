@@ -152,7 +152,7 @@ function cleanTranscript(stdout: string): string {
 
 export async function transcribeWav(wav: Buffer, language: string, config: BridgeConfig): Promise<string> {
   const setup = await resolveSetup(config);
-  const dir = join(tmpdir(), "claude-tmux-bridge");
+  const dir = join(tmpdir(), "herdr-pointr");
   await mkdir(dir, { recursive: true });
   const file = join(dir, `dictation-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.wav`);
   await writeFile(file, wav);

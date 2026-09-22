@@ -36,7 +36,7 @@ export const DEFAULT_PORT = 7331;
  * usual XDG-ish location so the bridge still works standalone.
  */
 function configDir(): string {
-  return process.env.HERDR_PLUGIN_CONFIG_DIR ?? join(homedir(), ".config", "claude-tmux-bridge");
+  return process.env.HERDR_PLUGIN_CONFIG_DIR ?? join(homedir(), ".config", "herdr-pointr");
 }
 
 export function configFile(): string {

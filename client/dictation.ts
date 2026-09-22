@@ -121,7 +121,7 @@ export function createDictation(bridgeOrigin: string, handlers: DictationHandler
     } catch (error) {
       // Keep the raw DOMException reachable: "NotAllowedError" covers four very
       // different fixes and the message is what tells them apart.
-      console.warn("[claude-tmux-bridge] microphone request failed:", error);
+      console.warn("[pointr] microphone request failed:", error);
       handlers.onError(await micError(error));
       return false;
     }

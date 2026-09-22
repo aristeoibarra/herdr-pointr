@@ -1,7 +1,7 @@
 /**
- * claude-tmux-bridge browser widget.
+ * pointr browser widget.
  * Injected via <script src="http://localhost:PORT/widget.js"> in development.
- * Select DOM elements, add context, and send to a Claude Code tmux pane.
+ * Select DOM elements, add context, and send to the agent that owns the project.
  */
 
 import { domToPng } from "modern-screenshot";
@@ -106,7 +106,7 @@ const ICON_STOP =
   '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
 
 (function initWidget(): void {
-  const ROOT_ID = "claude-tmux-bridge-root";
+  const ROOT_ID = "pointr-root";
 
   // Origin of the bridge that served this script — works on any port, no build-time define.
   const loader = document.currentScript as HTMLScriptElement | null;
@@ -257,7 +257,7 @@ const ICON_STOP =
 
     <div class="panel">
       <div class="head">
-        <span class="title">Send to Claude</span>
+        <span class="title">Send to agent</span>
         <button class="x close-panel" title="Close">✕</button>
       </div>
       <div class="dest"></div>
@@ -288,7 +288,7 @@ const ICON_STOP =
         </div>
       </div>
       <div class="row">
-        <button class="send">Send to Claude</button>
+        <button class="send">Send to agent</button>
       </div>
       <div class="status"></div>
     </div>
@@ -316,7 +316,7 @@ const ICON_STOP =
   fab.innerHTML = ICON_AI;
   micBtn.innerHTML = ICON_MIC;
 
-  const PREFS_KEY = "ctb-prefs";
+  const PREFS_KEY = "pointr-prefs";
   const prefs: Prefs = {
     autoSend: true,
     shot: false,
@@ -401,8 +401,8 @@ const ICON_STOP =
   // The popup writes to chrome.storage; extension/content.js relays it here.
   // Without the extension (bookmarklet, React mount) nothing answers and the
   // localStorage values loaded above stand.
-  const FROM_WIDGET = "ctb-widget";
-  const FROM_EXT = "ctb-ext";
+  const FROM_WIDGET = "pointr-widget";
+  const FROM_EXT = "pointr-ext";
 
   const toExtension = (message: Record<string, unknown>): void => {
     window.postMessage({ source: FROM_WIDGET, ...message }, location.origin);
@@ -454,7 +454,7 @@ const ICON_STOP =
         SEND_TIMEOUT_MS,
       );
       const d = (await r.json()) as { ok: boolean; project?: string };
-      dest.textContent = d.ok ? `→ ${d.project}` : "→ no Claude pane for this project";
+      dest.textContent = d.ok ? `→ ${d.project}` : "→ no agent for this project";
       dest.className = d.ok ? "dest ok" : "dest err";
     } catch {
       dest.textContent = "→ bridge offline";
@@ -523,7 +523,7 @@ const ICON_STOP =
     if (available) return;
     micBtn.classList.add("hidden");
     textarea.placeholder = "Describe the change you want…";
-    console.info(`[claude-tmux-bridge] dictation off — ${reason}`);
+    console.info(`[pointr] dictation off — ${reason}`);
   }
 
   if (!dictation.supported) reportDictation(false, "This browser cannot capture audio.");
@@ -941,6 +941,6 @@ const ICON_STOP =
   fab.title = selectTitle();
   void checkDictationBackend();
   console.info(
-    `[claude-tmux-bridge] widget ready — ${hotkeyLabel(prefs.hotkey)} or the button to select an element. Settings live in the extension popup.`,
+    `[pointr] widget ready — ${hotkeyLabel(prefs.hotkey)} or the button to select an element. Settings live in the extension popup.`,
   );
 })();

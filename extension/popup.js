@@ -161,7 +161,7 @@
   function loadDictationStatus() {
     var fromTab = tabId === null
       ? Promise.reject()
-      : chrome.tabs.sendMessage(tabId, { type: "ctb:dictation" }).then(function (state) {
+      : chrome.tabs.sendMessage(tabId, { type: "pointr:dictation" }).then(function (state) {
           if (!state) throw new Error("no widget");
           return state;
         });

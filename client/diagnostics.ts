@@ -18,8 +18,8 @@ const network: string[] = [];
 
 export function installDiagnostics(bridgeOrigin: string): void {
   // Window-level guard: the widget can be injected twice (extension + bookmarklet).
-  if (Reflect.get(window, "__ctbDiagnostics") === true) return;
-  Reflect.set(window, "__ctbDiagnostics", true);
+  if (Reflect.get(window, "__pointrDiagnostics") === true) return;
+  Reflect.set(window, "__pointrDiagnostics", true);
 
   window.addEventListener("error", (event) => {
     if (!(event instanceof ErrorEvent)) return;

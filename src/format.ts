@@ -50,7 +50,7 @@ export function isSendPayload(value: unknown): value is SendPayload {
 
 /** Build a clean, Claude-friendly prompt from selected elements + request. */
 export function formatPrompt(payload: SendPayload, screenshotPath: string | null): string {
-  const lines: string[] = ["[claude-tmux-bridge] UI change request from the browser", ""];
+  const lines: string[] = ["[pointr] UI change request from the browser", ""];
 
   lines.push(`Request: ${payload.message.trim() || "(no message provided)"}`);
   lines.push(`Page: ${payload.url}`);

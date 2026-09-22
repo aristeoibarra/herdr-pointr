@@ -1,6 +1,6 @@
 /**
  * Babel plugin: stamp every JSX *host* element (div, button, …) with
- * data-source="relative/path.tsx:line". The claude-tmux-bridge widget reads
+ * data-source="relative/path.tsx:line". The pointr widget reads
  * the attribute (client/capture.ts) and the prompt gains an exact `Source:`
  * line, so Claude opens the file instead of grepping by component name.
  *

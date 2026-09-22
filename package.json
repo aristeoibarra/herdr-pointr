@@ -1,37 +1,30 @@
 {
-  "name": "@aristeoibarra/claude-tmux-bridge",
-  "version": "0.3.1",
-  "description": "Select browser DOM elements and send them, with a change request, into a Claude Code session running in a tmux pane.",
+  "name": "herdr-pointr",
+  "version": "1.0.0",
+  "description": "Point at a DOM element on a localhost page and it lands in the coding agent that owns that project, with its React component, selector, styles and a screenshot.",
   "type": "module",
   "bin": {
-    "claude-tmux-bridge": "./dist/cli.js"
+    "pointr": "./dist/cli.js"
   },
-  "files": [
-    "dist",
-    "examples",
-    "README.md"
-  ],
   "scripts": {
     "build": "rm -rf dist && tsup",
-    "dev": "tsx src/cli.ts start",
+    "dev": "tsx src/cli.ts serve",
     "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aristeoibarra/claude-tmux-bridge.git"
+    "url": "git+https://github.com/aristeoibarra/herdr-pointr.git"
   },
   "keywords": [
-    "claude",
-    "claude-code",
-    "tmux",
+    "herdr",
+    "herdr-plugin",
+    "coding-agent",
     "devtools",
-    "browser"
+    "browser",
+    "react"
   ],
   "author": "aristeoibarra <aristeoibarra608@gmail.com>",
   "license": "MIT",
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
   "devDependencies": {
     "@medv/finder": "^4.0.2",
     "@types/node": "^22.0.0",

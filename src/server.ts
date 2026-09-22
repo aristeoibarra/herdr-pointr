@@ -454,7 +454,7 @@ function failureFor(error: unknown): HttpFailure {
 async function saveScreenshot(dataUrl: string): Promise<string | null> {
   const match = /^data:image\/(?:png|jpeg);base64,(.+)$/s.exec(dataUrl);
   if (!match?.[1]) return null;
-  const dir = join(tmpdir(), "claude-tmux-bridge");
+  const dir = join(tmpdir(), "herdr-pointr");
   await mkdir(dir, { recursive: true });
   // Random suffix: two quick sends can land on the same millisecond.
   const file = join(dir, `shot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`);
