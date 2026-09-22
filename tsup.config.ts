@@ -11,8 +11,9 @@ export default defineConfig([
     outDir: "dist",
   },
   {
-    // Browser widget — IIFE with finder + modern-screenshot inlined → dist/widget.global.js
-    entry: { widget: "client/widget.ts" },
+    // Browser bundles, both IIFE: the widget with finder inlined, and
+    // modern-screenshot on its own so tabs only load it when a screenshot is taken.
+    entry: { widget: "client/widget.ts", screenshot: "client/screenshot.ts" },
     format: ["iife"],
     platform: "browser",
     target: "es2020",

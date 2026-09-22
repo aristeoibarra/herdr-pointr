@@ -4,10 +4,9 @@
  * Select DOM elements, add context, and send to the agent that owns the project.
  */
 
-import { domToPng } from "modern-screenshot";
-
 import { buildElementPayload, type ElementPayload } from "./capture.ts";
 import { getDiagnostics, installDiagnostics } from "./diagnostics.ts";
+import { loadDomToPng } from "./shot-loader.ts";
 
 interface PickedItem {
   element: Element;
@@ -607,7 +606,16 @@ const ICON_CLOSE =
     fab.classList.remove("hidden");
   }
 
+  /**
+   * Fetch the rasterizer while the user is still picking and typing, so the
+   * send does not pay for the download. Failure is left for the send to report.
+   */
+  function prefetchShot(): void {
+    loadDomToPng(BRIDGE_ORIGIN).catch(() => undefined);
+  }
+
   function startSelect(): void {
+    if (prefs.shot) prefetchShot();
     selecting = true;
     fab.innerHTML = ICON_CLOSE;
     fab.classList.add("armed");
@@ -748,18 +756,20 @@ const ICON_CLOSE =
   };
 
   /** PNG of the largest selected element — a tight crop, no surroundings. */
-  function captureElement(targets: Element[]): Promise<string | null> {
+  async function captureElement(targets: Element[]): Promise<string | null> {
     const target = targets.reduce<Element | null>(
       (best, el) => (best && area(best) >= area(el) ? best : el),
       null,
     );
-    if (!target) return Promise.resolve(null);
+    if (!target) return null;
+    const domToPng = await loadDomToPng(BRIDGE_ORIGIN);
     return domToPng(target, { scale: 1, backgroundColor: "#ffffff" });
   }
 
   /** The whole visible viewport with every selected element outlined — context, not a crop. */
   async function captureViewport(targets: Element[]): Promise<string | null> {
     const boxes = targets.map((el) => el.getBoundingClientRect());
+    const domToPng = await loadDomToPng(BRIDGE_ORIGIN);
     const png = await domToPng(document.body, {
       width: window.innerWidth,
       height: window.innerHeight,
@@ -1065,6 +1075,7 @@ const ICON_CLOSE =
   });
   shotCheck.addEventListener("change", () => {
     prefs.shot = shotCheck.checked;
+    if (prefs.shot) prefetchShot();
     savePrefs();
     syncShotUi();
   });

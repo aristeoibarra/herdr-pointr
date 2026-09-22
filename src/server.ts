@@ -4,6 +4,7 @@ import { dirname, join, basename } from "node:path";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 
 import type { BridgeConfig } from "./config.ts";
 import type { HerdrAgent } from "./herdr.ts";
@@ -15,11 +16,15 @@ import { formatPrompt, isSendPayload, type SendPayload } from "./format.ts";
 import { bookmarkletPage } from "./bookmarklet.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// Pre-built widget: bundled next to dist/cli.js, or under ../dist in dev (tsx).
-const WIDGET_CANDIDATES = [
-  join(__dirname, "widget.global.js"),
-  join(__dirname, "..", "dist", "widget.global.js"),
-];
+/**
+ * Pre-built browser bundles: next to dist/cli.js, or under ../dist in dev (tsx).
+ * The screenshot bundle is its own file so that every localhost tab does not
+ * download and parse a rasterizer it only needs when a screenshot is ticked.
+ */
+const SCRIPTS: Record<string, string> = {
+  "/widget.js": "widget.global.js",
+  "/screenshot.js": "screenshot.global.js",
+};
 const MAX_BODY_BYTES = 5_000_000;
 /**
  * How long a watcher is held open around a send. Long enough for the agent to
@@ -29,6 +34,12 @@ const MAX_BODY_BYTES = 5_000_000;
 const SEND_WATCH_MS = 90_000;
 /** Just long enough to collapse the burst of /resolve calls when tabs wake. */
 const AGENT_CACHE_MS = 1_000;
+
+interface CachedScript {
+  at: number;
+  body: string;
+  etag: string;
+}
 
 interface AgentEntry {
   id: string;
@@ -43,7 +54,7 @@ interface AgentEntry {
 }
 
 export function createServer(config: BridgeConfig) {
-  let widgetCache: { at: number; body: string } | null = null;
+  const scriptCache = new Map<string, CachedScript>();
   let agentCache: { at: number; agents: HerdrAgent[] } | null = null;
   let agentInflight: Promise<HerdrAgent[]> | null = null;
 
@@ -52,14 +63,17 @@ export function createServer(config: BridgeConfig) {
    * development keeps serving the previous widget until someone restarts the
    * bridge, and the symptom is a browser that quietly ignores your last change.
    */
-  async function loadWidget(): Promise<string> {
-    const file = WIDGET_CANDIDATES.find((p) => existsSync(p));
-    if (!file) throw new Error("widget.global.js not found — run `npm run build`");
-    const at = statSync(file).mtimeMs;
-    if (widgetCache !== null && widgetCache.at === at) return widgetCache.body;
-    const body = await readFile(file, "utf8");
-    widgetCache = { at, body };
-    return body;
+  async function loadScript(file: string): Promise<CachedScript> {
+    const path = [join(__dirname, file), join(__dirname, "..", "dist", file)].find((p) => existsSync(p));
+    if (!path) throw new Error(`${file} not found — run \`npm run build\``);
+    const at = statSync(path).mtimeMs;
+    const cached = scriptCache.get(file);
+    if (cached !== undefined && cached.at === at) return cached;
+    const body = await readFile(path, "utf8");
+    const etag = `"${createHash("sha1").update(body).digest("base64url")}"`;
+    const fresh = { at, body, etag } satisfies CachedScript;
+    scriptCache.set(file, fresh);
+    return fresh;
   }
 
   /**
@@ -130,9 +144,23 @@ export function createServer(config: BridgeConfig) {
       res.end(bookmarkletPage(config.port));
       return;
     }
-    if (req.method === "GET" && pathname === "/widget.js") {
-      res.writeHead(200, { "content-type": "application/javascript; charset=utf-8" });
-      res.end(await loadWidget());
+    const script = SCRIPTS[pathname];
+    if (req.method === "GET" && script !== undefined) {
+      const { body, etag } = await loadScript(script);
+      // `no-cache` means revalidate, not "don't store": every tab load costs a
+      // 304 instead of the whole bundle, and a rebuild still lands immediately.
+      const headers = {
+        "content-type": "application/javascript; charset=utf-8",
+        "cache-control": "no-cache",
+        etag,
+      };
+      if (req.headers["if-none-match"] === etag) {
+        res.writeHead(304, headers);
+        res.end();
+        return;
+      }
+      res.writeHead(200, headers);
+      res.end(body);
       return;
     }
     if (req.method === "GET" && pathname === "/debug") {

@@ -22,7 +22,9 @@
   // Inject first and synchronously: the widget installs console/fetch/error hooks
   // on load, and those are only worth anything if they beat the app's own code.
   var s = document.createElement("script");
-  s.src = "http://localhost:" + BRIDGE_PORT + "/widget.js?t=" + Date.now();
+  // No cache-buster: the bridge answers with an ETag, so a reload costs a 304
+  // and a rebuild is still picked up on the next one.
+  s.src = "http://localhost:" + BRIDGE_PORT + "/widget.js";
   s.onerror = function () {
     // Bridge not running — fail silently, don't disturb the page.
   };

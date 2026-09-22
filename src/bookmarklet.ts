@@ -5,7 +5,7 @@ export function bookmarkletCode(port: number): string {
     "javascript:(function(){var d=document;" +
     "if(d.getElementById('pointr-root'))return;" +
     "var s=d.createElement('script');" +
-    `s.src='http://localhost:${port}/widget.js?t='+Date.now();` +
+    `s.src='http://localhost:${port}/widget.js';` +
     "s.onerror=function(){alert('pointr: bridge not reachable on :" +
     port +
     "');};" +

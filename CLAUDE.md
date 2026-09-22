@@ -46,9 +46,15 @@ to start.
 
 - **`src/` → `dist/cli.js`** — the Node side: CLI, HTTP server, herdr socket client, routing, daemon.
   ESM, no runtime deps, executable shebang.
-- **`client/` → `dist/widget.global.js`** — the browser widget: an IIFE with `@medv/finder` and
-  `modern-screenshot` inlined. Served at `GET /widget.js`. These deps are `devDependencies` precisely
-  because they're bundled into the widget at build time, never required at runtime.
+- **`client/` → `dist/widget.global.js` + `dist/screenshot.global.js`** — the browser widget, an
+  IIFE with `@medv/finder` inlined, served at `GET /widget.js`; and `modern-screenshot` as its own
+  IIFE at `GET /screenshot.js`, which `client/shot-loader.ts` injects only when a screenshot is
+  wanted. The rasterizer is ~40% of the total and most sends take none, so keeping it out is what
+  every localhost tab saves. These deps are `devDependencies` precisely because they're bundled at
+  build time, never required at runtime.
+- Both are served with an `ETag` and `cache-control: no-cache`: a reload costs a 304, a rebuild
+  still lands on the next one. Loaders must therefore **not** add a `?t=Date.now()` cache-buster —
+  that makes every URL unique and throws the cache away.
 
 Imports use explicit `.ts` extensions (`allowImportingTsExtensions` + Bundler resolution); keep that
 style. `verbatimModuleSyntax` is on, so use `import type` for type-only imports.
