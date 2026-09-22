@@ -1,11 +1,13 @@
 import { finder } from "@medv/finder";
 
-import { getComponentProps, getComponentStack, getOwnerComponentName } from "./react-fiber.ts";
+import { inspectComponent } from "./frameworks/index.ts";
 
 export interface ElementPayload {
   selector: string;
   tag: string;
   id: string | null;
+  /** Which framework adapter recognized the element, or null for plain DOM. */
+  framework: string | null;
   component: string | null;
   componentStack: string[];
   props: Record<string, string> | null;
@@ -146,16 +148,19 @@ function compactHtml(el: Element): string {
 
 export function buildElementPayload(el: Element): ElementPayload {
   const rect = el.getBoundingClientRect();
-  // data-source is only present if the optional Babel plugin is enabled.
+  const info = inspectComponent(el);
+  // data-source is only present if the optional Babel plugin is enabled, and
+  // when it is, it is exact — so it beats whatever the adapter could infer.
   const sourceEl = el.closest("[data-source]");
   return {
     selector: buildSelector(el),
     tag: el.tagName.toLowerCase(),
     id: el.id || null,
-    component: getOwnerComponentName(el),
-    componentStack: getComponentStack(el),
-    props: getComponentProps(el),
-    source: sourceEl?.getAttribute("data-source") ?? null,
+    framework: info?.framework ?? null,
+    component: info?.component ?? null,
+    componentStack: info?.componentStack ?? [],
+    props: info?.props ?? null,
+    source: sourceEl?.getAttribute("data-source") ?? info?.source ?? null,
     role: el.getAttribute("role"),
     accessibleName: accessibleName(el),
     text: (el.textContent ?? "").trim(),

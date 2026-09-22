@@ -1,6 +1,9 @@
+import { describeProps } from "./props.ts";
+import type { FrameworkAdapter } from "./types.ts";
+
 /**
- * React 19 fiber walking: resolve the owning component name and component stack
- * for a DOM node. React 19 removed `_debugSource`, so source file:line is no
+ * React adapter. React 19 fiber walking: resolve the owning component name and
+ * component stack for a DOM node. React 19 removed `_debugSource`, so source file:line is no
  * longer available from the fiber — but the component identity still is, which
  * is what lets an agent grep straight to the right file.
  *
@@ -122,80 +125,23 @@ function isFramework(name: string): boolean {
   return FRAMEWORK_RE.test(name);
 }
 
-/** Nearest owning component name above a DOM node (e.g. "ProfileCard"). */
-export function getOwnerComponentName(node: Node): string | null {
+/** Nearest user component above a node, skipping framework wrappers. */
+function ownerFiber(node: Node): Fiber | null {
   let fiber = getFiberFromDom(node);
   while (fiber) {
     const name = getDisplayNameForFiber(fiber);
-    if (name && !isFramework(name)) return name;
+    if (name && !isFramework(name)) return fiber;
     fiber = fiber.return;
   }
   return null;
 }
 
 /**
- * Serializable snapshot of the owning component's props, so the agent sees the
- * data the component received — not just its rendered output. Values are
- * summarized, never deep-serialized: functions become "ƒ", objects a key list,
- * React elements a marker. `children` is omitted (already covered by HTML).
- */
-export function getComponentProps(node: Node, limit = 15): Record<string, string> | null {
-  let fiber = getFiberFromDom(node);
-  while (fiber) {
-    const name = getDisplayNameForFiber(fiber);
-    if (name && !isFramework(name)) break;
-    fiber = fiber.return;
-  }
-  const props = fiber?.memoizedProps;
-  if (typeof props !== "object" || props === null) return null;
-
-  const out: Record<string, string> = {};
-  let count = 0;
-  for (const [key, value] of Object.entries(props)) {
-    if (key === "children") continue;
-    if (count >= limit) {
-      out["…"] = `+${Object.keys(props).length - 1 - count} more`;
-      break;
-    }
-    out[key] = describeValue(value);
-    count += 1;
-  }
-  return count > 0 ? out : null;
-}
-
-function describeValue(value: unknown): string {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  switch (typeof value) {
-    case "string":
-      return JSON.stringify(value.length > 120 ? `${value.slice(0, 120)}…` : value);
-    case "number":
-    case "boolean":
-    case "bigint":
-      return String(value);
-    case "function":
-      return "ƒ";
-    case "symbol":
-      return value.toString();
-    case "object": {
-      if (Array.isArray(value)) return `Array(${value.length})`;
-      const marker: unknown = Reflect.get(value, "$$typeof");
-      if (typeof marker === "symbol") return "<ReactElement>";
-      const keys = Object.keys(value);
-      return `{${keys.slice(0, 6).join(", ")}${keys.length > 6 ? ", …" : ""}}`;
-    }
-    default:
-      return String(value);
-  }
-}
-
-/** Component ancestry from nearest to outermost, capped and deduped of repeats. */
-/**
  * Ancestry above a node, nearest first. Three is deliberate: the first one or
  * two name the file to open, and everything past that is app structure the
  * agent pays for and does not act on.
  */
-export function getComponentStack(node: Node, limit = 3): string[] {
+function componentStack(node: Node, limit = 3): string[] {
   const stack: string[] = [];
   let fiber = getFiberFromDom(node);
   while (fiber && stack.length < limit) {
@@ -205,3 +151,20 @@ export function getComponentStack(node: Node, limit = 3): string[] {
   }
   return stack;
 }
+
+export const react: FrameworkAdapter = {
+  name: "react",
+  inspect(el) {
+    if (getFiberFromDom(el) === null) return null;
+    const owner = ownerFiber(el);
+    return {
+      framework: "react",
+      component: owner === null ? null : getDisplayNameForFiber(owner),
+      componentStack: componentStack(el),
+      props: owner === null ? null : describeProps(owner.memoizedProps),
+      // React 19 has no source location; the optional data-source Babel plugin
+      // (examples/) supplies one, read generically in capture.ts.
+      source: null,
+    };
+  },
+};

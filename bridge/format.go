@@ -43,6 +43,7 @@ type Element struct {
 	Selector       string     `json:"selector"`
 	Tag            string     `json:"tag"`
 	ID             string     `json:"id"`
+	Framework      string     `json:"framework"`
 	Component      string     `json:"component"`
 	ComponentStack []string   `json:"componentStack"`
 	Props          orderedMap `json:"props"`
@@ -112,6 +113,9 @@ func formatPrompt(payload SendPayload, pageURL, screenshotPath string) string {
 			if el.ID != "" {
 				heading += "#" + el.ID
 			}
+		}
+		if el.Framework != "" {
+			heading += " (" + el.Framework + ")"
 		}
 		lines = append(lines, fmt.Sprintf("Element %d: %s", i+1, heading))
 		// First, because it ends the search: with the data-source Babel plugin
