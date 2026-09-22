@@ -76,15 +76,12 @@ description = "pointr: send here"
 
 ## Load the widget
 
-Nothing to install in the browser. Open your app through pointr — for a dev server on
-port 3000:
+Nothing to install in the browser. Bookmark **`http://localhost:7331`**: it lists the dev
+servers running in your projects, with the agent each one's feedback would go to (or a
+warning that none is open there yet), and an **Open** button per server.
 
-```text
-http://localhost:7331/open?url=3000
-```
-
-Bookmark it, Ctrl-click the localhost URL an agent prints in herdr (below), type the port
-at `http://localhost:7331`, or run `pointr open 3000`. The page opens on its port + 10000
+You can also Ctrl-click the localhost URL an agent prints in herdr (below), go straight to
+`http://localhost:7331/open?url=3000`, or run `pointr open 3000`. The page opens on its port + 10000
 — `localhost:3000` becomes `localhost:13000` — served by the bridge with the widget added
 to each page and everything else passed through untouched: assets, API calls, hot reload. Proxies open
 on demand, bind to loopback only, close after 30 idle minutes, and come back on the same

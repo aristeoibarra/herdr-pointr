@@ -179,6 +179,11 @@ names. Exact `file:line` is only available if a project opts into a `data-source
   back to the proxy's coming out. It binds `127.0.0.1` only — a dev server on localhost is private
   on purpose. Open proxies persist in the state dir (`proxies.json`) and reopen on the same port
   at startup; an idle one with no connections closes after 30 minutes.
+- The setup page at `/` lists dev servers from `GET /servers`: every listening port outside the
+  ephemeral range (where port-0 binds land — Next's router workers, debuggers), whose owner's cwd
+  passes `isInformativeProjectDir`, minus the bridge's own ports. Reusing the routing's evidence
+  test is deliberate: the list shows exactly the ports routing could attribute to a project, with
+  `matchAgents` saying where each would land.
 - The widget derives the bridge origin from its own `<script src>`, so it works on any port with no
   build-time define.
 - Config lives in `HERDR_PLUGIN_CONFIG_DIR` when running as a plugin, else
