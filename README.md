@@ -79,19 +79,22 @@ and render it in the root layout, dev-only.
 
 ### Settings
 
-In the extension's toolbar popup. The on-page widget is the composer and nothing else.
-Changes apply live to open tabs, no reload.
+Behind the gear in the widget's panel — on the page, where what you are
+configuring actually is.
 
 | Setting | Scope |
 | --- | --- |
-| **Destination agent** — pin one instead of auto-routing | per origin |
-| **auto-send** — off pastes for review first | global |
-| **Selection shortcut** — defaults to `Alt+C` | global |
+| **Destination** — pin an agent instead of auto-routing | per site |
+| **Send on click** — off pastes for review first | global |
+| **Shortcut** — defaults to `Alt+C` | global |
 
-You can also pin from herdr itself: `pointr: send here` acts on the focused pane, and
-`pointr: choose a destination` opens a picker.
+With the extension installed these persist in `chrome.storage` and apply live to
+every open tab. Loaded by bookmarklet or by mounting the component they live in
+the page's `localStorage` instead, which is why the settings are here and not in
+the toolbar popup: those two paths have no popup.
 
-Loaded via bookmarklet or project mount there is no popup, so the widget runs on defaults.
+You can also pin from herdr itself: `pointr: send here` acts on the focused
+pane, and `pointr: choose a destination` opens a picker.
 
 ## Daily use
 

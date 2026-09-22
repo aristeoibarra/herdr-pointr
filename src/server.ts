@@ -2,7 +2,7 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { fileURLToPath } from "node:url";
 import { dirname, join, basename } from "node:path";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import type { BridgeConfig } from "./config.ts";
@@ -43,16 +43,23 @@ interface AgentEntry {
 }
 
 export function createServer(config: BridgeConfig) {
-  let widgetCache: string | null = null;
+  let widgetCache: { at: number; body: string } | null = null;
   let agentCache: { at: number; agents: HerdrAgent[] } | null = null;
   let agentInflight: Promise<HerdrAgent[]> | null = null;
 
+  /**
+   * Cached, but keyed on the bundle's mtime: without that, a rebuild during
+   * development keeps serving the previous widget until someone restarts the
+   * bridge, and the symptom is a browser that quietly ignores your last change.
+   */
   async function loadWidget(): Promise<string> {
-    if (widgetCache) return widgetCache;
     const file = WIDGET_CANDIDATES.find((p) => existsSync(p));
     if (!file) throw new Error("widget.global.js not found — run `npm run build`");
-    widgetCache = await readFile(file, "utf8");
-    return widgetCache;
+    const at = statSync(file).mtimeMs;
+    if (widgetCache !== null && widgetCache.at === at) return widgetCache.body;
+    const body = await readFile(file, "utf8");
+    widgetCache = { at, body };
+    return body;
   }
 
   /**

@@ -157,29 +157,39 @@ names. Exact `file:line` is only available if a project opts into a `data-source
   renderer drops the gradient and every `stroke`). Its geometry is deliberately a multiple of 8 on a
   128 grid so it lands on whole pixels at 16px, the size the toolbar actually renders.
 
-## User settings live in the extension popup
+## Settings live in the widget
 
-The widget has **no Settings UI** — `extension/popup.html`+`popup.js` own it, and the widget only
-reads. Don't re-add a gear to the widget.
+The gear in the panel header opens them; the extension popup is a health
+indicator and nothing else. It used to be the other way round, and the reason
+for moving was not only "one place instead of two": loaded by bookmarklet or by
+mounting `examples/Pointr.tsx`, there is no popup at all, so those paths had no
+settings UI whatsoever.
 
-- Storage is `chrome.storage.local`, split by scope: `global` (`autoSend`, `hotkey`
-  — user preferences) and `agent:<origin>` (`{id, session, label}` — which agent this project sends
-  to, hence per-origin). Splitting them is the point: nobody wants to re-record the shortcut per
-  project.
-- The stored label holds **only stable fields** (`project · kind`). It is persisted beside the pin so
-  the widget never has to call `/agents`; a status baked into it would be wrong seconds later, so
-  status is rendered live by the popup instead.
-- The widget runs in the page's **MAIN world** (it's a `<script src>`), so `window.postMessage` is
-  the only channel to `content.js`. Protocol: widget → `prefs:get`, `pin:clear`;
-  extension → `prefs`. `content.js` re-pushes on `chrome.storage.onChanged`, so popup edits land live
-  in every open tab.
-- Identifiers that must agree across the MAIN-world bundle and the isolated content script
-  (`pointr-root`, `pointr-widget`, `pointr-ext`) are **hardcoded in both files** — there is no shared
-  module between the two worlds. Change one side only and injection or the prefs channel breaks
-  silently.
-- Loaded without the extension, nothing answers `prefs:get` and the widget keeps the values in its
-  own `localStorage` (`pointr-prefs`) — still written on every change so removing the extension
-  doesn't reset anything.
+- Three settings: the destination agent (per origin), send-on-click, and the
+  selection shortcut.
+- The widget runs in the page's **MAIN world** (it's a `<script src>`), so it
+  cannot touch `chrome.storage` directly. `window.postMessage` is the only
+  channel to `content.js`. Protocol: widget → `prefs:get`, `prefs:set`,
+  `pin:clear`; extension → `prefs`.
+- `content.js` splits a `prefs:set` back into scopes on write exactly as it
+  joins them on read: `global` (`autoSend`, `hotkey`) and `agent:<origin>`
+  (`{id, session, label}`). Splitting them is the point — nobody wants to
+  re-record the shortcut per project, and nobody wants a destination chosen on
+  one site to follow them to another.
+- `content.js` re-pushes on `chrome.storage.onChanged`, so a change made in one
+  tab lands live in every other open tab. The widget never answers a `prefs`
+  push with a `prefs:set`, which is what keeps that from looping.
+- The stored destination label holds **only stable fields** (`project · kind`).
+  It sits beside the pin so the widget can render a pinned destination while the
+  bridge is unreachable; status changes by the second and is fetched live from
+  `/agents`, never persisted.
+- Identifiers that must agree across the MAIN-world bundle and the isolated
+  content script (`pointr-root`, `pointr-widget`, `pointr-ext`) are **hardcoded
+  in both files** — there is no shared module between the two worlds. Change one
+  side only and injection or the prefs channel breaks silently.
+- Loaded without the extension, nothing answers `prefs:get` or `prefs:set` and
+  the widget keeps everything in its own `localStorage` (`pointr-prefs`), which
+  it writes on every change either way.
 
 ## Releasing
 

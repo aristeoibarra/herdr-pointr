@@ -103,6 +103,8 @@ interface Prefs {
 // Inline SVGs (no external assets — the widget is a single bundle).
 const ICON_AI =
   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2l1.7 5.4 5.4 1.7-5.4 1.7L12 16.4l-1.7-5.4L4.9 9.3l5.4-1.7z"/><path d="M18.6 13.6l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9z"/></svg>';
+const ICON_GEAR =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
 const ICON_CLOSE =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
@@ -198,6 +200,31 @@ const ICON_CLOSE =
       }
       textarea:focus { border-color: #d97757; }
 
+      .gear {
+        margin-left: auto; width: 24px; height: 24px; padding: 0;
+        display: flex; align-items: center; justify-content: center;
+        background: none; border: none; color: #8a8a8a; cursor: pointer;
+      }
+      .gear:hover { color: #d97757; }
+      .gear svg { width: 15px; height: 15px; display: block; }
+      .gear.on { color: #d97757; }
+
+      .settings { display: grid; gap: 12px; padding: 4px 0 2px; }
+      .set-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        font-size: 12px; color: #c9c9c9;
+      }
+      .set-row select, .set-row .hotkey {
+        flex: 1; min-width: 0; max-width: 62%;
+        background: #1f1f1f; color: #e8e8e8; border: 1px solid #3a3a3a;
+        border-radius: 8px; padding: 6px 8px; font-size: 12px; font-family: inherit;
+      }
+      .set-row .hotkey { cursor: pointer; text-align: center; }
+      .set-row .hotkey.rec { border-color: #d97757; color: #f5b78f; }
+      .set-note { font-size: 11px; color: #8a8a8a; }
+      .set-note.err { color: #ff8a8a; }
+      .set-foot { font-size: 11px; color: #6f6f6f; line-height: 1.5; }
+
       .opts {
         display: flex; align-items: center; gap: 10px;
         margin-top: 10px; font-size: 12px; color: #bbb;
@@ -238,8 +265,10 @@ const ICON_CLOSE =
     <div class="panel">
       <div class="head">
         <span class="title">Send to agent</span>
+        <button class="gear" title="Settings"></button>
         <button class="x close-panel" title="Close">✕</button>
       </div>
+      <div class="body">
       <div class="dest"></div>
       <div class="chips"></div>
       <div class="picked" hidden>
@@ -268,6 +297,26 @@ const ICON_CLOSE =
       <div class="row">
         <button class="send">Send to agent</button>
       </div>
+      </div>
+      <div class="settings" hidden>
+        <div class="set-row">
+          <span>Destination</span>
+          <select class="agent-select"></select>
+        </div>
+        <div class="set-note"></div>
+        <label class="set-row">
+          <span>Send on click</span>
+          <input type="checkbox" class="autosend">
+        </label>
+        <div class="set-row">
+          <span>Shortcut</span>
+          <button class="hotkey"></button>
+        </div>
+        <div class="set-foot">
+          The destination is remembered per site. The shortcut and send-on-click
+          are the same everywhere.
+        </div>
+      </div>
       <div class="status"></div>
     </div>
   `;
@@ -288,8 +337,16 @@ const ICON_CLOSE =
   const sendBtn = q<HTMLButtonElement>(".send");
   const status = q<HTMLDivElement>(".status");
   const dest = q<HTMLDivElement>(".dest");
+  const gearBtn = q<HTMLButtonElement>(".gear");
+  const bodyEl = q<HTMLDivElement>(".body");
+  const settingsEl = q<HTMLDivElement>(".settings");
+  const agentSelect = q<HTMLSelectElement>(".agent-select");
+  const setNote = q<HTMLDivElement>(".set-note");
+  const autoSendCheck = q<HTMLInputElement>(".autosend");
+  const hotkeyBtn = q<HTMLButtonElement>(".hotkey");
 
   fab.innerHTML = ICON_AI;
+  gearBtn.innerHTML = ICON_GEAR;
 
   const PREFS_KEY = "pointr-prefs";
   const prefs: Prefs = {
@@ -379,6 +436,12 @@ const ICON_CLOSE =
   const FROM_WIDGET = "pointr-widget";
   const FROM_EXT = "pointr-ext";
 
+  /** Persist a change where the extension can see it, and in localStorage. */
+  function pushPrefs(patch: Record<string, unknown>): void {
+    savePrefs();
+    toExtension({ type: "prefs:set", prefs: patch });
+  }
+
   const toExtension = (message: Record<string, unknown>): void => {
     window.postMessage({ source: FROM_WIDGET, ...message }, location.origin);
   };
@@ -412,6 +475,93 @@ const ICON_CLOSE =
   });
 
   toExtension({ type: "prefs:get" });
+
+  // ── Settings, in the widget ──────────────────────────────────────────────
+  // They used to live in the extension popup. Moving them here means one place
+  // instead of two, and — the part that actually mattered — it gives the
+  // bookmarklet and the mounted-component paths a settings UI at all, since
+  // neither of those has a popup to open.
+
+  interface AgentEntry {
+    id: string;
+    label: string;
+    status: string;
+    session: string | null;
+  }
+
+  let settingsOpen = false;
+  let recordingHotkey = false;
+
+  function renderHotkeyBtn(): void {
+    hotkeyBtn.textContent = recordingHotkey
+      ? "press a combo… (Esc cancels)"
+      : hotkeyLabel(prefs.hotkey);
+    hotkeyBtn.classList.toggle("rec", recordingHotkey);
+  }
+
+  async function loadAgents(): Promise<void> {
+    const pinned = prefs.targetAgent;
+    agentSelect.replaceChildren();
+    const auto = document.createElement("option");
+    auto.value = "";
+    auto.textContent = "Auto — from this page's port";
+    agentSelect.append(auto);
+
+    try {
+      const r = await withTimeout(fetch(`${BRIDGE_ORIGIN}/agents`), SEND_TIMEOUT_MS);
+      const data = (await r.json()) as { agents?: AgentEntry[] };
+      const agents = data.agents ?? [];
+      for (const agent of agents) {
+        const opt = document.createElement("option");
+        opt.value = agent.id;
+        // Status is rendered here and never stored: it changes by the second.
+        opt.textContent = `${agent.label} — ${agent.status}`;
+        opt.dataset["label"] = agent.label;
+        opt.dataset["session"] = agent.session ?? "";
+        agentSelect.append(opt);
+      }
+      // A pin the bridge no longer lists is a dead pane id — they are never
+      // reused, so say so instead of silently showing Auto.
+      const stale = pinned !== null && !agents.some((a) => a.id === pinned.paneId);
+      agentSelect.value = stale ? "" : (pinned?.paneId ?? "");
+      setNote.textContent = stale
+        ? "That agent is gone — sends fall back to auto-routing."
+        : agents.length === 0
+          ? "herdr reports no agents open."
+          : "";
+      setNote.classList.toggle("err", stale);
+    } catch {
+      // Offline proves nothing about the pin, so keep it selectable.
+      if (pinned !== null) {
+        const opt = document.createElement("option");
+        opt.value = pinned.paneId;
+        opt.textContent = prefs.targetAgentLabel ?? pinned.paneId;
+        agentSelect.append(opt);
+        agentSelect.value = pinned.paneId;
+      }
+      setNote.textContent = "Bridge offline — showing the last known pin.";
+      setNote.classList.add("err");
+    }
+  }
+
+  function openSettings(): void {
+    settingsOpen = true;
+    bodyEl.hidden = true;
+    settingsEl.hidden = false;
+    gearBtn.classList.add("on");
+    autoSendCheck.checked = prefs.autoSend;
+    renderHotkeyBtn();
+    void loadAgents();
+  }
+
+  function closeSettings(): void {
+    settingsOpen = false;
+    recordingHotkey = false;
+    bodyEl.hidden = false;
+    settingsEl.hidden = true;
+    gearBtn.classList.remove("on");
+    void updateDest();
+  }
 
   async function updateDest(): Promise<void> {
     if (prefs.targetAgent) {
@@ -447,6 +597,7 @@ const ICON_CLOSE =
   /** Return to the resting state: launcher visible, nothing selected/open. */
   function goIdle(): void {
     closeStream(); // and never leave a status stream behind one either
+    if (settingsOpen) closeSettings();
     selecting = false;
     fab.innerHTML = ICON_AI;
     fab.classList.remove("armed");
@@ -504,6 +655,33 @@ const ICON_CLOSE =
   }
 
   function onKey(e: KeyboardEvent): void {
+    if (recordingHotkey) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        recordingHotkey = false;
+        renderHotkeyBtn();
+        return;
+      }
+      // A modifier on its own is the user still reaching for the key.
+      if (/^(?:Alt|Control|Shift|Meta)/.test(e.code)) return;
+      if (!e.altKey && !e.ctrlKey && !e.metaKey) {
+        hotkeyBtn.textContent = "add Alt, Ctrl or ⌘ to the key…";
+        return;
+      }
+      prefs.hotkey = normalizeHotkey({
+        code: e.code,
+        alt: e.altKey,
+        ctrl: e.ctrlKey,
+        shift: e.shiftKey,
+        meta: e.metaKey,
+      });
+      recordingHotkey = false;
+      renderHotkeyBtn();
+      fab.title = selectTitle();
+      pushPrefs({ hotkey: prefs.hotkey });
+      return;
+    }
     if (e.key === "Escape") {
       goIdle();
       return;
@@ -862,6 +1040,29 @@ const ICON_CLOSE =
   q<HTMLButtonElement>(".child").addEventListener("click", focusChild);
   q<HTMLButtonElement>(".add").addEventListener("click", addAnother);
   sendBtn.addEventListener("click", () => void send());
+  gearBtn.addEventListener("click", () => (settingsOpen ? closeSettings() : openSettings()));
+  hotkeyBtn.addEventListener("click", () => {
+    recordingHotkey = !recordingHotkey;
+    renderHotkeyBtn();
+  });
+  autoSendCheck.addEventListener("change", () => {
+    prefs.autoSend = autoSendCheck.checked;
+    pushPrefs({ autoSend: prefs.autoSend });
+  });
+  agentSelect.addEventListener("change", () => {
+    const opt = agentSelect.selectedOptions[0];
+    if (agentSelect.value === "" || opt === undefined) {
+      prefs.targetAgent = null;
+      prefs.targetAgentLabel = null;
+    } else {
+      const session = opt.dataset["session"] ?? "";
+      prefs.targetAgent = { paneId: agentSelect.value, session: session === "" ? null : session };
+      prefs.targetAgentLabel = opt.dataset["label"] ?? null;
+    }
+    setNote.textContent = "";
+    setNote.classList.remove("err");
+    pushPrefs({ targetAgent: prefs.targetAgent, targetAgentLabel: prefs.targetAgentLabel });
+  });
   shotCheck.addEventListener("change", () => {
     prefs.shot = shotCheck.checked;
     savePrefs();

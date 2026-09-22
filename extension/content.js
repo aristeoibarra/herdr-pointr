@@ -48,12 +48,50 @@
     });
   }
 
+  /**
+   * The widget owns the settings UI, so it is the writer now; this script is
+   * the only thing that can reach chrome.storage from a MAIN-world script.
+   * Global keys and the per-origin destination are split exactly as they are
+   * on read, so a destination chosen on one site never follows you to another.
+   */
+  function writePrefs(incoming) {
+    chrome.storage.local.get([GLOBAL_KEY, AGENT_KEY], function (stored) {
+      var write = {};
+      var global = stored[GLOBAL_KEY] || {};
+      var touchedGlobal = false;
+      if (typeof incoming.autoSend === "boolean") {
+        global.autoSend = incoming.autoSend;
+        touchedGlobal = true;
+      }
+      if (incoming.hotkey && typeof incoming.hotkey.code === "string") {
+        global.hotkey = incoming.hotkey;
+        touchedGlobal = true;
+      }
+      if (touchedGlobal) write[GLOBAL_KEY] = global;
+
+      if ("targetAgent" in incoming) {
+        write[AGENT_KEY] = incoming.targetAgent
+          ? {
+              id: incoming.targetAgent.paneId,
+              session: incoming.targetAgent.session || null,
+              label: incoming.targetAgentLabel || null,
+            }
+          : { id: null, session: null, label: null };
+      }
+      if (Object.keys(write).length > 0) chrome.storage.local.set(write);
+    });
+  }
+
   window.addEventListener("message", function (event) {
     if (event.source !== window) return;
     var data = event.data;
     if (!data || data.source !== FROM_WIDGET) return;
     if (data.type === "prefs:get") {
       push();
+      return;
+    }
+    if (data.type === "prefs:set") {
+      writePrefs(data.prefs || {});
       return;
     }
     if (data.type === "pin:clear") {
