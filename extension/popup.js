@@ -23,10 +23,10 @@
   var origin = null;
   var tabId = null;
   var global = { autoSend: true, dictationLang: "auto", hotkey: DEFAULT_HOTKEY };
-  var pane = { id: null, label: null };
+  var agent = { id: null, session: null, label: null };
 
-  function paneKey() {
-    return "pane:" + origin;
+  function agentKey() {
+    return "agent:" + origin;
   }
 
   function saveGlobal() {
@@ -35,10 +35,10 @@
     chrome.storage.local.set(write);
   }
 
-  function savePane() {
+  function saveAgent() {
     if (!origin) return;
     var write = {};
-    write[paneKey()] = pane;
+    write[agentKey()] = agent;
     chrome.storage.local.set(write);
   }
 
@@ -86,60 +86,71 @@
     saveGlobal();
   });
 
-  // ── Sessions ───────────────────────────────────────────────────────────────
-  function renderSessions(sessions, live) {
+  // ── Destination agent ──────────────────────────────────────────────────────
+  // The label is stored beside the pin so the widget never has to call /agents.
+  // Only stable parts go in it: status changes by the second, so it is rendered
+  // live here and never baked into what gets persisted.
+  function renderAgents(agents, live) {
     sessionSelect.replaceChildren();
     var auto = document.createElement("option");
     auto.value = "";
     auto.textContent = "Auto (detect)";
     sessionSelect.append(auto);
-    sessions.forEach(function (s) {
+    agents.forEach(function (a) {
       var opt = document.createElement("option");
-      opt.value = s.id;
-      opt.textContent = s.label;
+      opt.value = a.id;
+      opt.textContent = a.label + " — " + a.status;
+      opt.dataset.label = a.label;
+      opt.dataset.session = a.session || "";
       sessionSelect.append(opt);
     });
-    // A pinned pane that a reachable tmux no longer reports is a dead id — show
-    // Auto and say why. An unreachable bridge proves nothing, so don't guess.
-    var stale = live && pane.id !== null && !sessions.some(function (s) {
-      return s.id === pane.id;
+    // A pin that a reachable bridge no longer lists is a dead id — pane ids are
+    // never reused. An unreachable bridge proves nothing, so don't guess.
+    var stale = live && agent.id !== null && !agents.some(function (a) {
+      return a.id === agent.id;
     });
-    if (!live && pane.id) {
+    if (!live && agent.id) {
       // Keep the pin selectable while the bridge is down.
       var pinned = document.createElement("option");
-      pinned.value = pane.id;
-      pinned.textContent = pane.label || "pane " + pane.id;
+      pinned.value = agent.id;
+      pinned.textContent = agent.label || agent.id;
       sessionSelect.append(pinned);
     }
-    sessionSelect.value = stale ? "" : pane.id || "";
+    sessionSelect.value = stale ? "" : agent.id || "";
     paneNote.classList.toggle("hidden", !stale);
-    if (stale) paneNote.textContent = "The pinned session is gone — sends fall back to auto-routing.";
+    if (stale) paneNote.textContent = "That agent is gone — sends fall back to auto-routing.";
   }
 
-  function loadSessions() {
-    return fetch(BRIDGE + "/sessions")
+  function loadAgents() {
+    return fetch(BRIDGE + "/agents")
       .then(function (r) {
         return r.json();
       })
       .then(function (d) {
-        renderSessions(d.sessions || [], true);
+        renderAgents(d.agents || [], true);
       })
       .catch(function () {
-        renderSessions([], false);
+        renderAgents([], false);
       });
   }
 
   sessionSelect.addEventListener("change", function () {
     var opt = sessionSelect.selectedOptions[0];
-    pane = sessionSelect.value
-      ? { id: sessionSelect.value, label: opt ? opt.textContent : null }
-      : { id: null, label: null };
+    agent = sessionSelect.value
+      ? {
+          id: sessionSelect.value,
+          // The session rides along so the bridge can tell an agent that
+          // restarted in this terminal from one that never moved.
+          session: opt && opt.dataset.session ? opt.dataset.session : null,
+          label: opt && opt.dataset.label ? opt.dataset.label : null,
+        }
+      : { id: null, session: null, label: null };
     paneNote.classList.add("hidden");
-    savePane();
+    saveAgent();
   });
 
   $("refresh").addEventListener("click", function () {
-    void loadSessions();
+    void loadAgents();
   });
 
   autosend.addEventListener("change", function () {
@@ -226,19 +237,19 @@
         /* chrome:// pages and the like have no usable URL */
       }
 
-      var keys = origin ? [GLOBAL_KEY, paneKey()] : [GLOBAL_KEY];
+      var keys = origin ? [GLOBAL_KEY, agentKey()] : [GLOBAL_KEY];
       return chrome.storage.local.get(keys).then(function (stored) {
         var savedGlobal = stored[GLOBAL_KEY] || {};
         if (typeof savedGlobal.autoSend === "boolean") global.autoSend = savedGlobal.autoSend;
         if (typeof savedGlobal.dictationLang === "string") global.dictationLang = savedGlobal.dictationLang;
         if (savedGlobal.hotkey && typeof savedGlobal.hotkey.code === "string") global.hotkey = savedGlobal.hotkey;
-        if (origin && stored[paneKey()]) pane = stored[paneKey()];
+        if (origin && stored[agentKey()]) agent = stored[agentKey()];
 
         render();
 
         if (origin) {
-          scopeEl.textContent = "Target session applies to " + origin + ". The rest is global.";
-          void loadSessions();
+          scopeEl.textContent = "The destination agent applies to " + origin + ". The rest is global.";
+          void loadAgents();
         } else {
           // Without a localhost tab there is no project to pin a session to.
           scopeEl.textContent = "Open a localhost dev app to pick its target session.";
@@ -255,7 +266,7 @@
       healthEl.textContent = "● settings unavailable";
       healthEl.className = "health err";
       scopeEl.textContent = error && error.message ? error.message : String(error);
-      void loadSessions();
+      void loadAgents();
       renderHotkey();
     });
 })();

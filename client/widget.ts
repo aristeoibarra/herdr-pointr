@@ -76,8 +76,17 @@ interface ExtensionPrefs {
   autoSend?: boolean;
   dictationLang?: string;
   hotkey?: Hotkey | null;
-  targetPane?: string | null;
-  targetPaneLabel?: string | null;
+  targetAgent?: AgentPin | null;
+  targetAgentLabel?: string | null;
+}
+
+/**
+ * A pinned destination. The session id rides along so the bridge can tell an
+ * agent that restarted in the same terminal from one that never moved.
+ */
+interface AgentPin {
+  paneId: string;
+  session: string | null;
 }
 
 interface Prefs {
@@ -86,10 +95,10 @@ interface Prefs {
   shot: boolean;
   /** What the screenshot frames; remembered even while `shot` is off. */
   shotTarget: ShotTarget;
-  /** Pane id pinned in the popup, or null for auto-routing. Set per origin. */
-  targetPane: string | null;
-  /** Human label for the pinned pane, so the panel needn't refetch /sessions. */
-  targetPaneLabel: string | null;
+  /** Agent pinned in the popup, or null for auto-routing. Set per origin. */
+  targetAgent: AgentPin | null;
+  /** Human label for the pinned agent, so the panel needn't refetch /agents. */
+  targetAgentLabel: string | null;
   hotkey: Hotkey;
   /** BCP-47 tag for dictation, or "auto" to follow the browser. */
   dictationLang: string;
@@ -250,6 +259,7 @@ const ICON_STOP =
       .status { font-size: 12px; margin-top: 8px; min-height: 16px; }
       .status.ok { color: #6ee7a8; }
       .status.err { color: #ff8a8a; }
+      .status.warn { color: #ffd479; }
     </style>
 
     <button class="fab" title="Select an element (Alt+C)"></button>
@@ -321,8 +331,8 @@ const ICON_STOP =
     autoSend: true,
     shot: false,
     shotTarget: "element",
-    targetPane: null,
-    targetPaneLabel: null,
+    targetAgent: null,
+    targetAgentLabel: null,
     hotkey: { ...DEFAULT_HOTKEY },
     dictationLang: "auto",
   };
@@ -340,8 +350,10 @@ const ICON_STOP =
       if (saved.shotMode !== "off") prefs.shotTarget = saved.shotMode;
     }
     if (typeof saved.dictationLang === "string") prefs.dictationLang = saved.dictationLang;
-    if (typeof saved.targetPane === "string") prefs.targetPane = saved.targetPane;
-    if (typeof saved.targetPaneLabel === "string") prefs.targetPaneLabel = saved.targetPaneLabel;
+    if (saved.targetAgent && typeof saved.targetAgent.paneId === "string") {
+      prefs.targetAgent = saved.targetAgent;
+    }
+    if (typeof saved.targetAgentLabel === "string") prefs.targetAgentLabel = saved.targetAgentLabel;
     if (typeof saved.hotkey === "object" && saved.hotkey !== null && typeof saved.hotkey.code === "string") {
       prefs.hotkey = normalizeHotkey(saved.hotkey);
     }
@@ -418,11 +430,11 @@ const ICON_STOP =
     if (incoming.hotkey && typeof incoming.hotkey.code === "string") {
       prefs.hotkey = normalizeHotkey(incoming.hotkey);
     }
-    if (typeof incoming.targetPane === "string" || incoming.targetPane === null) {
-      prefs.targetPane = incoming.targetPane;
+    if (incoming.targetAgent === null || (incoming.targetAgent && typeof incoming.targetAgent.paneId === "string")) {
+      prefs.targetAgent = incoming.targetAgent;
     }
-    if (typeof incoming.targetPaneLabel === "string" || incoming.targetPaneLabel === null) {
-      prefs.targetPaneLabel = incoming.targetPaneLabel;
+    if (typeof incoming.targetAgentLabel === "string" || incoming.targetAgentLabel === null) {
+      prefs.targetAgentLabel = incoming.targetAgentLabel;
     }
     savePrefs(); // keeps the fallback copy warm if the extension is later removed
     fab.title = selectTitle();
@@ -440,8 +452,8 @@ const ICON_STOP =
   toExtension({ type: "prefs:get" });
 
   async function updateDest(): Promise<void> {
-    if (prefs.targetPane) {
-      const label = prefs.targetPaneLabel ?? `pane ${prefs.targetPane}`;
+    if (prefs.targetAgent) {
+      const label = prefs.targetAgentLabel ?? prefs.targetAgent.paneId;
       dest.textContent = `→ ${label} (pinned)`;
       dest.className = "dest pin";
       return;
@@ -578,6 +590,7 @@ const ICON_STOP =
   /** Return to the resting state: launcher visible, nothing selected/open. */
   function goIdle(): void {
     dictation.cancel(); // never leave the mic open behind a closed panel
+    closeStream(); // and never leave a status stream behind one either
     selecting = false;
     fab.innerHTML = ICON_AI;
     fab.classList.remove("armed");
@@ -812,7 +825,7 @@ const ICON_STOP =
 
     setStatus("Sending…", "");
 
-    const pinned = prefs.targetPane;
+    const pinned = prefs.targetAgent;
     const abort = new AbortController();
     const timer = window.setTimeout(() => abort.abort(), SEND_TIMEOUT_MS);
     try {
@@ -826,18 +839,22 @@ const ICON_STOP =
           elements,
           screenshot,
           autoSubmit: prefs.autoSend,
-          targetPane: pinned,
+          targetAgent: pinned,
           diagnostics: getDiagnostics(),
         }),
       });
       const data = (await res.json()) as {
         ok: boolean;
         error?: string;
-        targetPane?: string;
+        reason?: string;
+        targetAgent?: { paneId: string; session: string | null };
         project?: string;
+        stale?: { paneId: string; reason: string } | null;
       };
       if (!data.ok) {
-        setStatus(data.error ?? "Failed.", "err");
+        // A blocked agent is something the user can clear and retry, so it gets
+        // an amber state and — crucially — the composer keeps their text.
+        setStatus(data.error ?? "Failed.", data.reason === "agent_blocked" ? "warn" : "err");
         return;
       }
 
@@ -849,14 +866,18 @@ const ICON_STOP =
 
       const notes: string[] = [];
       if (shotNote) notes.push(shotNote);
-      if (pinned && data.targetPane && data.targetPane !== pinned) {
+      if (data.stale?.reason === "pane_closed") {
         // Pane ids never come back once gone — drop the dead pin instead of
         // silently re-routing on every send.
-        prefs.targetPane = null;
-        prefs.targetPaneLabel = null;
+        prefs.targetAgent = null;
+        prefs.targetAgentLabel = null;
         savePrefs();
         toExtension({ type: "pin:clear" });
-        notes.push("pinned session was gone, auto-routed");
+        notes.push("pinned agent was closed, auto-routed");
+      } else if (data.stale?.reason === "session_replaced") {
+        // The terminal is the same one, so the pin still points somewhere
+        // sensible; just say the conversation behind it is new.
+        notes.push("that agent restarted");
       }
       const suffix = notes.length > 0 ? ` (${notes.join("; ")})` : "";
       const project = data.project ?? "Claude";
@@ -866,7 +887,7 @@ const ICON_STOP =
         return;
       }
       setStatus(`Sent to ${project}${suffix}.`, "ok");
-      watchPaneTitle(data.targetPane);
+      watchAgent(data.targetAgent?.paneId);
     } catch {
       setStatus(
         abort.signal.aborted
@@ -881,24 +902,101 @@ const ICON_STOP =
   }
 
   /**
-   * Claude Code mirrors its current task into the tmux pane title, so one
-   * delayed poll turns "sent" into "Claude: <what it's doing>" — the closest
-   * thing to a feedback loop without holding a connection open.
+   * Follow the destination agent until it settles.
+   *
+   * The stream is opened here, on a confirmed send, and never at load: the
+   * widget is injected into every localhost tab, so a stream held from page
+   * load would pin one connection per tab for as long as the tab lives.
    */
-  function watchPaneTitle(pane: string | undefined): void {
-    if (!pane) {
+  let liveStream: EventSource | null = null;
+
+  function closeStream(): void {
+    liveStream?.close();
+    liveStream = null;
+  }
+
+  function watchAgent(paneId: string | undefined): void {
+    if (!paneId) {
       window.setTimeout(goIdle, 1500);
       return;
     }
+    closeStream();
+
+    // No EventSource, or a page CSP that refuses it: fall back to the single
+    // delayed check this replaced, so the widget is never worse than before.
+    if (typeof EventSource !== "function") {
+      pollOnce(paneId);
+      return;
+    }
+
+    let stream: EventSource;
+    try {
+      stream = new EventSource(`${BRIDGE_ORIGIN}/status?agent=${encodeURIComponent(paneId)}`);
+    } catch {
+      pollOnce(paneId);
+      return;
+    }
+    liveStream = stream;
+
+    // Never hold it open indefinitely: an agent that never settles would
+    // otherwise keep both this stream and a herdr subscription alive.
+    const cap = window.setTimeout(() => {
+      closeStream();
+      window.setTimeout(goIdle, 500);
+    }, 60_000);
+
+    const finish = (delay: number): void => {
+      window.clearTimeout(cap);
+      closeStream();
+      window.setTimeout(goIdle, delay);
+    };
+
+    stream.addEventListener("status", (event: MessageEvent<string>) => {
+      const { status: state } = JSON.parse(event.data) as { status: string };
+      if (state === "working") {
+        setStatus("Agent is working…", "ok");
+        return;
+      }
+      if (state === "blocked") {
+        setStatus("Agent is waiting on an approval in its terminal.", "warn");
+        finish(3200);
+        return;
+      }
+      // idle and done both mean "ready for input" — the turn is over.
+      setStatus("Agent finished.", "ok");
+      finish(2200);
+    });
+
+    stream.addEventListener("title", (event: MessageEvent<string>) => {
+      const { title } = JSON.parse(event.data) as { title: string };
+      if (title) setStatus(truncate(title, 70), "ok");
+    });
+
+    // The terminal disappearing is a different thing from the agent finishing,
+    // and the user needs to know which happened.
+    stream.addEventListener("closed", () => {
+      setStatus("That agent's terminal was closed.", "warn");
+      finish(2600);
+    });
+
+    stream.addEventListener("replaced", () => {
+      setStatus("That agent restarted — it has none of the earlier context.", "warn");
+    });
+
+    stream.onerror = () => {
+      // EventSource retries on its own; only give up once it is really done.
+      if (stream.readyState === EventSource.CLOSED) finish(1200);
+    };
+  }
+
+  /** The pre-stream behaviour, kept as the degraded path. */
+  function pollOnce(paneId: string): void {
     window.setTimeout(() => {
       void (async () => {
         try {
-          const r = await fetch(`${BRIDGE_ORIGIN}/pane-title?pane=${encodeURIComponent(pane)}`);
+          const r = await fetch(`${BRIDGE_ORIGIN}/status?agent=${encodeURIComponent(paneId)}&once=1`);
           const d = (await r.json()) as { ok: boolean; title?: string };
-          if (d.ok && d.title) {
-            const title = d.title.length > 70 ? `${d.title.slice(0, 70)}…` : d.title;
-            setStatus(`Claude: ${title}`, "ok");
-          }
+          if (d.ok && d.title) setStatus(truncate(d.title, 70), "ok");
         } catch {
           /* bridge hiccup — keep the sent confirmation */
         }
@@ -907,7 +1005,11 @@ const ICON_STOP =
     }, 1800);
   }
 
-  function setStatus(text: string, kind: "ok" | "err" | ""): void {
+  function truncate(value: string, max: number): string {
+    return value.length > max ? `${value.slice(0, max)}…` : value;
+  }
+
+  function setStatus(text: string, kind: "ok" | "err" | "warn" | ""): void {
     status.textContent = text;
     status.className = `status ${kind}`.trim();
   }

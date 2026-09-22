@@ -12,8 +12,10 @@
   window.__pointrInjected = true;
 
   var GLOBAL_KEY = "global";
-  var PANE_KEY = "pane:" + location.origin;
-  var LEGACY_KEY = "pointr-prefs";
+  // Per-origin: which agent this project sends to. Global settings (shortcut,
+  // language, auto-send) are the user's and are keyed separately, so nobody has
+  // to re-record a shortcut per project.
+  var AGENT_KEY = "agent:" + location.origin;
   var FROM_WIDGET = "pointr-widget";
   var FROM_EXT = "pointr-ext";
 
@@ -27,9 +29,9 @@
   (document.head || document.documentElement).appendChild(s);
 
   function push() {
-    chrome.storage.local.get([GLOBAL_KEY, PANE_KEY], function (stored) {
+    chrome.storage.local.get([GLOBAL_KEY, AGENT_KEY], function (stored) {
       var global = stored[GLOBAL_KEY] || {};
-      var pane = stored[PANE_KEY] || {};
+      var agent = stored[AGENT_KEY] || {};
       window.postMessage(
         {
           source: FROM_EXT,
@@ -38,44 +40,12 @@
             autoSend: global.autoSend,
             dictationLang: global.dictationLang,
             hotkey: global.hotkey,
-            targetPane: pane.id || null,
-            targetPaneLabel: pane.label || null,
+            targetAgent: agent.id ? { paneId: agent.id, session: agent.session || null } : null,
+            targetAgentLabel: agent.label || null,
           },
         },
         location.origin,
       );
-    });
-  }
-
-  /**
-   * Settings used to live in the page's localStorage, written by the widget.
-   * Content scripts share that store, so the move to extension storage can be
-   * silent — seed once, per key, and never look again.
-   */
-  function migrateLegacyPrefs() {
-    var legacy;
-    try {
-      legacy = JSON.parse(localStorage.getItem(LEGACY_KEY) || "null");
-    } catch (e) {
-      return;
-    }
-    if (!legacy || typeof legacy !== "object") return;
-    chrome.storage.local.get([GLOBAL_KEY, PANE_KEY], function (stored) {
-      var write = {};
-      // The shortcut, language and auto-send default are the user's, not the
-      // project's — the first origin to be seen seeds them for every origin.
-      if (!stored[GLOBAL_KEY]) {
-        write[GLOBAL_KEY] = {
-          autoSend: typeof legacy.autoSend === "boolean" ? legacy.autoSend : true,
-          dictationLang: typeof legacy.dictationLang === "string" ? legacy.dictationLang : "auto",
-          hotkey: legacy.hotkey || null,
-        };
-      }
-      // The pinned session is per-project, so it stays keyed by origin.
-      if (!stored[PANE_KEY] && typeof legacy.targetPane === "string") {
-        write[PANE_KEY] = { id: legacy.targetPane, label: null };
-      }
-      if (Object.keys(write).length > 0) chrome.storage.local.set(write);
     });
   }
 
@@ -93,11 +63,10 @@
       return;
     }
     if (data.type === "pin:clear") {
-      // The pinned pane died mid-send; blank it so the popup stops showing it.
-      // Written as an explicit "no pin" rather than removed, so the legacy
-      // migration below can't resurrect it on the next page load.
+      // The pinned agent's terminal closed mid-send; blank it so the popup
+      // stops offering a destination that cannot come back.
       var cleared = {};
-      cleared[PANE_KEY] = { id: null, label: null };
+      cleared[AGENT_KEY] = { id: null, session: null, label: null };
       chrome.storage.local.set(cleared);
       return;
     }
@@ -108,13 +77,12 @@
 
   chrome.storage.onChanged.addListener(function (changes, area) {
     if (area !== "local") return;
-    if (changes[GLOBAL_KEY] || changes[PANE_KEY]) push();
+    if (changes[GLOBAL_KEY] || changes[AGENT_KEY]) push();
   });
 
   chrome.runtime.onMessage.addListener(function (message, _sender, respond) {
     if (message && message.type === "pointr:dictation") respond(dictation);
   });
 
-  migrateLegacyPrefs();
   push();
 })();
