@@ -1028,6 +1028,41 @@ const ICON_CLOSE =
   document.addEventListener("keydown", onKey, true);
   window.addEventListener("scroll", () => focused && drawOverlay(focused), true);
 
+  // A modal (Radix/vaul drawers, dialogs, popovers) watches the document for
+  // presses and focus outside itself, and sees the widget's as exactly that:
+  // they leave the shadow root retargeted to the host. Pressing the button
+  // closed the drawer being inspected, and focusing the textarea had focus
+  // pulled straight back. So the widget's own events end at the host.
+  for (const type of [
+    "pointerdown", "pointerup", "mousedown", "mouseup", "touchstart", "touchend",
+    "click", "focusin", "focusout", "keydown", "keyup", "keypress",
+  ]) {
+    host.addEventListener(type, (e) => e.stopPropagation());
+  }
+  // Focus leaving the modal *for* the widget is dispatched on the modal's
+  // element, not ours, so it has to be caught on the way down instead.
+  window.addEventListener(
+    "focusout",
+    (e) => {
+      if (isOwn(e.relatedTarget)) e.stopImmediatePropagation();
+    },
+    true,
+  );
+  // While picking, a press is the pick, not an interaction: it must not
+  // dismiss a modal or trigger a control that acts on pointerdown.
+  // touchstart is left alone: cancelling it would cancel the click that picks.
+  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) {
+    window.addEventListener(
+      type,
+      (e) => {
+        if (!selecting || isOwn(e.target)) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      },
+      true,
+    );
+  }
+
   fab.title = selectTitle();
   console.info(
     `[pointr] widget ready — ${hotkeyLabel(prefs.hotkey)} or the button to select an element. Settings: the gear in the panel.`,
