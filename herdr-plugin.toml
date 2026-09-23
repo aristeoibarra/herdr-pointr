@@ -1,6 +1,6 @@
 id = "aristeoibarra.pointr"
 name = "pointr"
-version = "2.1.0"
+version = "2.1.1"
 # 0.9.0 is a real floor, not a round number. Two guarantees this plugin leans on
 # arrived late: agent.prompt began rejecting a blocked agent with `agent_blocked`
 # before writing any input in 0.8.2, and only in 0.9.0 did it guarantee the
