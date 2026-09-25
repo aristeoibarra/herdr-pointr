@@ -2,7 +2,6 @@ import type { Api, Thread } from "../api.ts";
 import { findThreadTarget } from "../anchor.ts";
 import type { WidgetContext } from "../context.ts";
 import { h, icon, spinner } from "../dom.ts";
-import { pageKey } from "../navigation.ts";
 import { readDraft, rememberOpenThread, saveDraft } from "../session.ts";
 import { agentName, ago, isHeld, threadLabel, waitingText } from "../status-text.ts";
 import type { Store } from "../store.ts";
@@ -46,7 +45,8 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   const anchor = h("div", { className: "anchor", hidden: true });
   const label = h("span", { className: "label" });
   const page = h("span", { className: "sub-label", hidden: true });
-  const resolveBtn = h("button", { className: "sbtn push", attrs: { type: "button", "aria-label": "Resolve thread", title: "Resolve" } }, icon("check", 16));
+  const resolvedTag = h("span", { className: "sub-label", text: "resolved", hidden: true });
+  const resolveBtn = h("button", { className: "sbtn push", attrs: { type: "button" } });
   const closeBtn = h("button", { className: "sbtn", attrs: { type: "button", "aria-label": "Close" } }, icon("close", 14));
   const msgs = h("div", { className: "msgs" });
   const waitTitle = h("div", { className: "t" });
@@ -62,7 +62,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   const goBtn = h("button", { className: "gbtn", attrs: { type: "button" } }, "Go to page", icon("arrowRight", 13));
   const foot = h("div", { className: "foot", hidden: true }, goBtn);
   const pop = h("div", { className: "pop", attrs: { role: "dialog" }, hidden: true },
-    h("div", { className: "head ruled" }, label, page, resolveBtn, closeBtn), msgs, wait, reply, note, foot);
+    h("div", { className: "head ruled" }, label, page, resolvedTag, resolveBtn, closeBtn), msgs, wait, reply, note, foot);
   ctx.layer.append(anchor, pop);
 
   function setNote(text: string, kind: "" | "err" | "warn" = ""): void {
@@ -100,6 +100,11 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
     label.textContent = threadLabel(t);
     page.textContent = t.path;
     page.hidden = anchored;
+    resolvedTag.hidden = !t.resolved;
+    const action = t.resolved ? "Reopen thread" : "Resolve thread";
+    resolveBtn.replaceChildren(icon(t.resolved ? "reopen" : "check", 16));
+    resolveBtn.setAttribute("aria-label", action);
+    resolveBtn.title = action;
     pop.setAttribute("aria-label", `Thread on ${threadLabel(t)}`);
     renderMessages(t);
     if (t.waiting) {
@@ -169,11 +174,13 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   }
 
   async function resolve(): Promise<void> {
-    if (!openId) return;
+    const t = openId ? deps.store.get(openId) : undefined;
+    if (!t) return;
     try {
-      const updated = await deps.api.resolve(openId, true);
+      // A resolved thread's button reopens it, and it stays on screen.
+      const updated = await deps.api.resolve(t.id, !t.resolved);
       if (updated) deps.store.upsert(updated);
-      close();
+      if (!t.resolved) close();
       deps.changed();
     } catch {
       setNote(`Bridge not reachable at ${ctx.bridge}.`, "err");
@@ -288,7 +295,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       renderedKey = "";
       // Only a thread of this very page is pinned here: another page's
       // selector can match something unrelated on this one.
-      anchored = t.port === deps.store.port && t.path === pageKey() && targetFor(t) !== null;
+      anchored = deps.store.isHere(t) && targetFor(t) !== null;
       pop.hidden = false;
       render();
       fitInput();

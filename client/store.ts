@@ -7,6 +7,7 @@ import type { LiveAgent, Thread, ThreadsResponse } from "./api.ts";
 import { pageKey } from "./navigation.ts";
 
 export interface Store {
+  /** Every thread of the project, open and resolved. */
   readonly threads: readonly Thread[];
   /** null until the first answer: nothing has been compared yet. */
   readonly rev: number | null;
@@ -25,7 +26,10 @@ export interface Store {
   /** Drops a thread the bridge no longer has — one cancelled before its agent saw it. */
   remove(id: string): void;
   get(id: string): Thread | undefined;
+  /** Open threads of this page: the ones with pins. */
   onPage(): Thread[];
+  /** Whether a thread belongs to the page the tab is on. */
+  isHere(t: Thread): boolean;
   otherPageUnread(): Thread[];
   anyUnread(): boolean;
   hasWaiting(): boolean;
@@ -42,16 +46,13 @@ export function createStore(): Store {
   let port = "";
   let herdr = true;
   let agents: Record<string, LiveAgent> = {};
-  let resolvedCount = 0;
   const listeners: Array<() => void> = [];
   const emit = (): void => {
     for (const listener of listeners) listener();
   };
 
-  const onPage = (): Thread[] => {
-    const page = pageKey();
-    return threads.filter((t) => t.port === port && t.path === page);
-  };
+  const isHere = (t: Thread): boolean => t.port === port && t.path === pageKey();
+  const onPage = (): Thread[] => threads.filter((t) => !t.resolved && isHere(t));
 
   return {
     get threads() {
@@ -70,7 +71,7 @@ export function createStore(): Store {
       return agents;
     },
     get resolvedCount() {
-      return resolvedCount;
+      return threads.filter((t) => t.resolved).length;
     },
 
     apply(res) {
@@ -87,22 +88,15 @@ export function createStore(): Store {
           if (!first && next.unread && (!prev || agentMessages(next) > agentMessages(prev))) replied.push(next);
         }
         threads = res.threads;
-        resolvedCount = res.resolvedCount;
       }
       emit();
       return replied;
     },
 
     upsert(thread) {
-      const known = threads.some((t) => t.id === thread.id);
-      if (thread.resolved) {
-        if (known) resolvedCount += 1;
-        threads = threads.filter((t) => t.id !== thread.id);
-      } else if (known) {
-        threads = threads.map((t) => (t.id === thread.id ? thread : t));
-      } else {
-        threads = [...threads, thread];
-      }
+      threads = threads.some((t) => t.id === thread.id)
+        ? threads.map((t) => (t.id === thread.id ? thread : t))
+        : [...threads, thread];
       emit();
     },
 
@@ -113,10 +107,8 @@ export function createStore(): Store {
 
     get: (id) => threads.find((t) => t.id === id),
     onPage,
-    otherPageUnread() {
-      const page = pageKey();
-      return threads.filter((t) => t.unread && (t.port !== port || t.path !== page));
-    },
+    isHere,
+    otherPageUnread: () => threads.filter((t) => t.unread && !isHere(t)),
     anyUnread: () => threads.some((t) => t.unread),
     hasWaiting: () => threads.some((t) => t.waiting),
     oldestWaitingAt() {

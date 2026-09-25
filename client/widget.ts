@@ -92,7 +92,7 @@ function mount(bridge: string): WidgetHandle {
     goTo,
     cancelled: (t, texts) => {
       const text = texts.join("\n\n");
-      const here = t.port === store.port && t.path === pageKey();
+      const here = store.isHere(t);
       const elements = here ? t.anchors.map((a) => findAnchor(a, ctx.isOwn)).filter((el): el is Element => el !== null) : [];
       if (elements.length > 0) {
         composer.edit(elements, text);
@@ -164,7 +164,7 @@ function mount(bridge: string): WidgetHandle {
   function announce(replied: Thread[]): void {
     for (const t of replied) {
       if (threads.openId === t.id) continue;
-      const here = t.port === store.port && t.path === pageKey();
+      const here = store.isHere(t);
       if (here && prefs.pins && pins.elementFor(t.id)) continue;
       toast.show(`${agentName(t.agentKind)} replied ${here ? "on this page" : `on ${t.path}`}`, {
         kind: "reply",

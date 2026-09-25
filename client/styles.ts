@@ -206,6 +206,13 @@ textarea::placeholder { color: var(--dim); }
 .mini.waiting { background: #09090b; color: #fff; border: 1.5px solid #fff; }
 .mini.replied { background: #fff; color: #09090b; }
 .mini.gone { background: transparent; color: var(--muted); border: 1.5px dashed #52525b; }
+.mini.resolved { background: transparent; color: var(--muted); border: 1.5px solid #52525b; }
+.tabs { padding: 0 16px 8px; }
+.tabs .seg { width: 100%; }
+.tabs .seg button { flex: 1; height: 28px; font-size: 12px; }
+.ghead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 12px 8px 4px; font-size: 11.5px; color: var(--dim); }
+.ghead .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ghead .here { flex-shrink: 0; color: var(--muted); }
 .lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .l1 { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; overflow: hidden; font-size: 13px; }
 .l1 .c { flex-shrink: 0; font: 11.5px var(--mono); color: var(--muted); }
