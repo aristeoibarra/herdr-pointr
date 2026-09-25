@@ -101,9 +101,7 @@ func (reg *ProxyRegistry) persistLocked() {
 		ports = append(ports, upstream)
 	}
 	raw, _ := json.Marshal(ports)
-	if os.MkdirAll(filepath.Dir(reg.stateFile), 0o755) == nil {
-		_ = os.WriteFile(reg.stateFile, raw, 0o644) // losing it only costs a re-open
-	}
+	_ = writeFileAtomic(reg.stateFile, raw, 0o644) // losing it only costs a re-open
 }
 
 func (reg *ProxyRegistry) restore() {
