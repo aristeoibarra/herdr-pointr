@@ -162,7 +162,8 @@ again is the normal case, not the edge.
 
 There is no automated test: the repo has no browser to run one in. The scoring was tuned against
 these scenarios, each guard failing at least one when removed: own text edited; text and its label
-edited in place; a sibling edited; old photo with the reply quoting the new text (and without);
+edited in place; a sibling edited; old photo with the reply quoting the new text (and without,
+and a one-letter text — "Uno" became `"I"`);
 card removed (with and without the reply naming the neighbour); card inserted before (and edited);
 list reordered; list item removed; same-text buttons with a row inserted, removed, re-sorted;
 class renamed (and text edited); item removed while two were added and quoted; element replaced by

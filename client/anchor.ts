@@ -147,21 +147,25 @@ const close = (x: string, y: string): number => {
   return s >= 0.5 ? s : 0;
 };
 
-const QUOTED = /["“”«»'`‘’]([^"“”«»'`‘’\n]{2,80})["“”«»'`‘’]/g;
+const QUOTED = /["“”«»'`‘’]([^"“”«»'`‘’\n]{1,80})["“”«»'`‘’]/g;
 
 /** Strings the agent quoted: how a reply names text it put on the page. */
 function quotedIn(replies: string): string[] {
-  return [...replies.matchAll(QUOTED)].map((m) => squash(m[1] ?? "")).filter((q) => q.length >= 2);
+  return [...replies.matchAll(QUOTED)].map((m) => squash(m[1] ?? "")).filter((q) => q.length > 0);
 }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** 3 when the reply quotes this text, 1 when it only says it, else 0. */
+/**
+ * 3 when the reply quotes this text, 1 when it only says it, else 0. Quoted
+ * counts at any length — `"I"` is exactly what a roman numeral edit leaves;
+ * said without quotes, a short text shows up in any prose by chance.
+ */
 function mentioned(replies: string, quoted: string[], text: string): number {
-  if (text.length < 3 || text.length > 80) return 0;
   if (quoted.includes(text)) return 3;
+  if (text.length < 3 || text.length > 80) return 0;
   const word = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(text)}(?:$|[^\\p{L}\\p{N}])`, "u");
   return word.test(replies) ? 1 : 0;
 }
