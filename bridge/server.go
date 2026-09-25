@@ -227,6 +227,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 200, map[string]any{
 			"ok": true, "cwd": cwd, "portStrategy": portStrategy(), "portOwners": owners,
 			"agents": entries(live), "resolution": describe(res), "trace": res.Trace,
+			// Where this page's comment threads are filed — "why don't my
+			// threads show?" answered next to "why did it route there?".
+			"threadsKey": s.projectKey(pageURL),
 		})
 	case get && path == "/resolve":
 		live, _ := s.agents(false)
@@ -248,8 +251,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 200, map[string]any{"ok": true, "agents": entries(live)})
 	case get && path == "/status":
 		s.handleStatus(w, r)
+	case get && path == "/threads":
+		s.handleThreads(w, r)
 	case r.Method == http.MethodPost && path == "/send":
 		s.handleSend(w, r)
+	case r.Method == http.MethodPost && path == "/threads/reply":
+		s.handleThreadReply(w, r)
 	default:
 		sendJSON(w, 404, map[string]any{"ok": false, "reason": "not_found", "error": "not found"})
 	}
