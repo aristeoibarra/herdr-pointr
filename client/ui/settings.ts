@@ -6,7 +6,11 @@ import { place } from "./popover.ts";
 
 export interface Settings {
   readonly isOpen: boolean;
-  /** Opens next to anchor; candidates come from a send routing could not settle. */
+  /**
+   * Opens beside anchor — the whole popover that asked, not a control inside
+   * it, or it lands on top of that popover. Candidates come from a send
+   * routing could not settle.
+   */
   open(anchor: DOMRect | null, candidates?: AgentEntry[]): void;
   close(): void;
   /** Takes the keystroke while a shortcut is being recorded. */
@@ -32,7 +36,7 @@ export function createSettings(ctx: WidgetContext, deps: SettingsDeps): Settings
   const shotElement = h("button", { attrs: { type: "button" }, text: "Element" });
   const shotViewport = h("button", { attrs: { type: "button" }, text: "Viewport" });
   const close = h("button", { className: "sbtn push", attrs: { type: "button", "aria-label": "Close settings" } }, icon("close", 14));
-  const pop = h("div", { className: "pop settings", attrs: { role: "dialog", "aria-label": "Settings" }, hidden: true },
+  const pop = h("div", { className: "pop wide settings", attrs: { role: "dialog", "aria-label": "Settings" }, hidden: true },
     h("div", { className: "head" }, h("span", { className: "title", text: "Settings" }), close),
     h("div", { className: "srow" }, h("span", { text: "Destination" }), select),
     note,
@@ -125,6 +129,9 @@ export function createSettings(ctx: WidgetContext, deps: SettingsDeps): Settings
       recording = false;
       renderHotkey();
       renderShot();
+      // Every popover shares the top z-index, so the last in the DOM wins:
+      // move to the end to sit above whatever opened it.
+      ctx.layer.append(pop);
       pop.hidden = false;
       place(pop, anchor);
       void loadAgents(candidates).then(() => place(pop, anchor));

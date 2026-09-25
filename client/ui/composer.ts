@@ -198,7 +198,7 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
         // A blocked agent is something to clear and retry, so it reads as a
         // warning — and the comment keeps its text either way.
         setNote(res.error, res.reason === "agent_blocked" ? "warn" : "err");
-        if (res.candidates.length > 0) deps.settings.open(dest.getBoundingClientRect(), res.candidates);
+        if (res.candidates.length > 0) deps.settings.open(pop.getBoundingClientRect(), res.candidates);
         return;
       }
       if (res.stale === "pane_closed") {
@@ -236,7 +236,7 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
   closeBtn.addEventListener("click", () => close());
   sendBtn.addEventListener("click", () => void send());
   shotBtn.addEventListener("click", () => setShot(!shot));
-  dest.addEventListener("click", () => deps.settings.open(dest.getBoundingClientRect()));
+  dest.addEventListener("click", () => deps.settings.open(pop.getBoundingClientRect()));
   textarea.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();

@@ -81,7 +81,7 @@ export function createThreadList(ctx: WidgetContext, deps: ListDeps): ThreadList
     deps.onToggle(false);
   }
 
-  gear.addEventListener("click", () => deps.openSettings(gear.getBoundingClientRect()));
+  gear.addEventListener("click", () => deps.openSettings(pop.getBoundingClientRect()));
   closeBtn.addEventListener("click", () => close());
 
   return {
