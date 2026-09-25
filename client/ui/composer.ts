@@ -1,9 +1,11 @@
-import { BridgeTimeout, type Api, type Thread } from "../api.ts";
+import { BridgeTimeout, type Anchor, type Api, type Thread } from "../api.ts";
+import { findAnchor } from "../anchor.ts";
 import { buildElementPayload, type ElementPayload } from "../capture.ts";
 import type { WidgetContext } from "../context.ts";
 import { getDiagnostics } from "../diagnostics.ts";
 import { h, icon } from "../dom.ts";
 import { pageKey } from "../navigation.ts";
+import { saveComposeDraft, takeComposeDraft } from "../session.ts";
 import { loadDomToPng } from "../shot-loader.ts";
 import { MAX_SHOT_CHARS, SEND_TIMEOUT_MS, SHOT_TIMEOUT_MS, TimeoutError, captureElement, captureViewport, withTimeout } from "../shot.ts";
 import { outline, place } from "./popover.ts";
@@ -21,6 +23,12 @@ export interface Composer {
   close(): void;
   reposition(): void;
   refreshDestination(): void;
+  /**
+   * Brings back a comment that was being written when the page reloaded —
+   * often the agent's edit for another thread. True when this page has one,
+   * even if its elements are still rendering.
+   */
+  restore(): boolean;
 }
 
 export interface ComposerDeps {
@@ -29,6 +37,22 @@ export interface ComposerDeps {
   /** "+ Add": pick another element for the same comment. */
   pickAnother(): void;
   onSent(thread: Thread | null, project: string, notes: string[]): void;
+}
+
+const squash = (value: string): string => value.replace(/\s+/g, " ").trim();
+
+/** What finds a picked element again after a reload — the same shape the bridge stores. */
+function anchorOf(p: ElementPayload): Anchor {
+  return {
+    selector: p.selector,
+    tag: p.tag,
+    id: p.id ?? "",
+    component: p.component ?? "",
+    framework: p.framework ?? "",
+    source: p.source ?? "",
+    text: squash(p.text).slice(0, 120),
+    context: p.context,
+  };
 }
 
 function label(payload: ElementPayload): string {
@@ -120,6 +144,16 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
   function render(): void {
     renderChips();
     reposition();
+    persist();
+  }
+
+  /** Keeps the comment being written for the tab, so a reload does not eat it. */
+  function persist(): void {
+    if (pop.hidden || items.length === 0) {
+      saveComposeDraft(null);
+      return;
+    }
+    saveComposeDraft({ page: pageKey(), text: textarea.value, anchors: items.map((item) => anchorOf(item.payload)) });
   }
 
   function setShot(on: boolean): void {
@@ -231,12 +265,18 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
     pop.hidden = true;
     items = [];
     marks.replaceChildren();
+    saveComposeDraft(null);
   }
 
   closeBtn.addEventListener("click", () => close());
   sendBtn.addEventListener("click", () => void send());
   shotBtn.addEventListener("click", () => setShot(!shot));
   dest.addEventListener("click", () => deps.settings.open(pop.getBoundingClientRect()));
+  let persistTimer = 0;
+  textarea.addEventListener("input", () => {
+    window.clearTimeout(persistTimer);
+    persistTimer = window.setTimeout(persist, 300);
+  });
   textarea.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -264,5 +304,35 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
     close,
     reposition,
     refreshDestination: () => void refreshDestination(),
+    restore() {
+      const draft = takeComposeDraft();
+      if (!draft) return false;
+      let tries = 0;
+      const attempt = (): void => {
+        // Started another comment meanwhile: that one wins.
+        if (!pop.hidden || ctx.signal.aborted) return;
+        const found = draft.anchors.map((a) => findAnchor(a, ctx.isOwn)).filter((el): el is Element => el !== null);
+        if (found.length === 0) {
+          // An app may still be rendering what the comment is about.
+          if (++tries < 5) window.setTimeout(attempt, 400);
+          return;
+        }
+        items = found.map((element) => ({ element, payload: buildElementPayload(element) }));
+        setShot(false);
+        setNote("");
+        void refreshDestination();
+        pop.hidden = false;
+        textarea.value = draft.text;
+        render();
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      };
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", attempt, { once: true, signal: ctx.signal });
+      } else {
+        attempt();
+      }
+      return true;
+    },
   };
 }

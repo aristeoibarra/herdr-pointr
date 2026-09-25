@@ -123,7 +123,7 @@ const list = (o: Json, key: string): unknown[] => {
   return Array.isArray(value) ? value : [];
 };
 
-function readAnchor(v: unknown): Anchor | null {
+export function readAnchor(v: unknown): Anchor | null {
   if (!isJson(v)) return null;
   return {
     selector: str(v, "selector"),

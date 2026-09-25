@@ -97,12 +97,15 @@ function mount(bridge: string): WidgetHandle {
     onToggle: (open) => dock.setListOpen(open),
   });
   let firstLoad = true;
+  // A comment half-written when the page reloaded comes back first: unsent
+  // text is the thing worth not losing, so it wins over reopening a thread.
+  const restoringComment = composer.restore();
   const poller = createPoller(ctx, api, store, (replied) => {
     if (firstLoad) {
       firstLoad = false;
-      // Arriving from "Go to page": open the thread it was going to.
+      // Reloaded with a thread open, or arrived through Go to page.
       const pending = takeOpenThread();
-      if (pending && store.get(pending)) openThread(pending);
+      if (pending && store.get(pending) && !restoringComment) openThread(pending);
       else announceMissed();
     }
     announce(replied);
@@ -189,7 +192,7 @@ function mount(bridge: string): WidgetHandle {
    */
   function goTo(t: Thread): void {
     if (t.port === store.port) {
-      rememberOpenThread(t.id);
+      rememberOpenThread(t.id, t.path);
       location.assign(location.origin + t.path);
       return;
     }
