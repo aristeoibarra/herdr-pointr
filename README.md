@@ -12,7 +12,7 @@ ancestry, props, a selector, recent console errors and an optional screenshot, a
 agent's answer comes back as a thread pinned to that element. A [herdr](https://herdr.dev)
 plugin; works with any agent herdr detects.
 
-![A dev app with a comment pinned to a card and its thread open: the question, the agent's reply, and a reply box; the dock in the corner shows the comment count](docs/widget.png)
+![Selecting the overdue amount on an invoices page, asking whether its red is too loud, reading Claude Code's answer in the thread, asking it to use the badge's red instead — the page reloads with the new colour and the thread stays pinned to the amount](docs/demo.gif)
 
 ## Install
 
@@ -39,6 +39,8 @@ element. If the agent is busy, the comment waits in pointr until it is free — 
 cancel it or send it anyway. Reply in the thread to keep going, resolve it when you are
 done; the list in the dock has every thread of the project, open and resolved. If no agent
 is open there, the page warns you; if several are, it asks.
+
+![An invoices page with a pin on the overdue amount and its thread open: the question, Claude Code's answer, and a reply box; the dock in the corner shows the comment count](docs/widget.png)
 
 ## What the agent gets
 
