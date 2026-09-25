@@ -22,6 +22,8 @@ export interface Store {
   apply(res: ThreadsResponse): Thread[];
   /** Merges a thread returned by one of the widget's own requests. */
   upsert(thread: Thread): void;
+  /** Drops a thread the bridge no longer has — one cancelled before its agent saw it. */
+  remove(id: string): void;
   get(id: string): Thread | undefined;
   onPage(): Thread[];
   otherPageUnread(): Thread[];
@@ -101,6 +103,11 @@ export function createStore(): Store {
       } else {
         threads = [...threads, thread];
       }
+      emit();
+    },
+
+    remove(id) {
+      threads = threads.filter((t) => t.id !== id);
       emit();
     },
 

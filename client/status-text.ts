@@ -22,6 +22,11 @@ export interface WaitingText {
   warn: boolean;
 }
 
+/** Whether the bridge still holds part of the thread: that part can be cancelled. */
+export function isHeld(t: Thread): boolean {
+  return t.messages.some((m) => m.held);
+}
+
 /**
  * What a waiting thread says, from the live state of its agent. herdr does
  * not track turns, so "finished without replying" cannot be told apart from
@@ -31,6 +36,12 @@ export function waitingText(t: Thread, store: Store): WaitingText {
   const name = agentName(t.agentKind);
   if (!store.herdr) return { title: "herdr isn't answering", sub: "The reply shows up here once it is back.", warn: true };
   const live = store.agents[t.pane];
+  if (isHeld(t)) {
+    const title = `Queued — goes in when ${name} is free`;
+    if (!live) return { title, sub: "Its terminal was closed. Send it now to route it to another agent.", warn: true };
+    if (live.status === "blocked") return { title, sub: `${name} is waiting on an approval in its terminal.`, warn: true };
+    return { title, sub: "Until then you can still cancel it.", warn: false };
+  }
   if (!live) return { title: `${name}'s terminal was closed`, sub: "Reply to send it to another agent.", warn: true };
   if (live.status === "blocked") {
     return { title: `${name} needs an approval in its terminal`, sub: "Answer it there; the comment is waiting.", warn: true };

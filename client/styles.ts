@@ -164,6 +164,9 @@ textarea::placeholder { color: var(--dim); }
 .wait .t { font-size: 12.5px; font-weight: 500; }
 .wait .s { font-size: 12px; color: var(--muted); }
 .wait.warn .t { color: var(--warn); }
+.wait-body { flex: 1; min-width: 0; }
+.held-actions { display: flex; gap: 8px; margin-top: 10px; }
+.held-actions .gbtn { height: 28px; }
 .spin { flex-shrink: 0; margin-top: 1px; animation: pointr-spin .9s linear infinite; }
 @keyframes pointr-spin { to { transform: rotate(360deg); } }
 .reply { display: flex; align-items: flex-end; gap: 8px; padding: 10px 10px 10px 14px; border-top: 1px solid var(--line); }

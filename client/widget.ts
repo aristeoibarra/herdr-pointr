@@ -5,6 +5,7 @@
  * coding agent that owns the project.
  */
 
+import { findAnchor } from "./anchor.ts";
 import { createApi, type Thread } from "./api.ts";
 import type { WidgetContext } from "./context.ts";
 import { installDiagnostics } from "./diagnostics.ts";
@@ -89,6 +90,16 @@ function mount(bridge: string): WidgetHandle {
     elementFor: (id) => pins.elementFor(id),
     changed: () => poller.kick(),
     goTo,
+    cancelled: (t, texts) => {
+      const text = texts.join("\n\n");
+      const here = t.port === store.port && t.path === pageKey();
+      const elements = here ? t.anchors.map((a) => findAnchor(a, ctx.isOwn)).filter((el): el is Element => el !== null) : [];
+      if (elements.length > 0) {
+        composer.edit(elements, text);
+        return;
+      }
+      toast.show(`Cancelled before ${agentName(t.agentKind)} saw it.`, { kind: "warn", ms: 6000 });
+    },
   });
   const list = createThreadList(ctx, {
     store,

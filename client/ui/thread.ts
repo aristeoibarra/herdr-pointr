@@ -4,7 +4,7 @@ import type { WidgetContext } from "../context.ts";
 import { h, icon, spinner } from "../dom.ts";
 import { pageKey } from "../navigation.ts";
 import { readDraft, rememberOpenThread, saveDraft } from "../session.ts";
-import { agentName, ago, threadLabel, waitingText } from "../status-text.ts";
+import { agentName, ago, isHeld, threadLabel, waitingText } from "../status-text.ts";
 import type { Store } from "../store.ts";
 import { outline, place } from "./popover.ts";
 import type { Settings } from "./settings.ts";
@@ -28,6 +28,8 @@ export interface ThreadDeps {
   /** Something changed on the bridge's side: fetch the project again. */
   changed(): void;
   goTo(thread: Thread): void;
+  /** A comment the agent never saw was cancelled: hand it back for editing. */
+  cancelled(thread: Thread, texts: string[]): void;
 }
 
 /**
@@ -49,7 +51,10 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   const msgs = h("div", { className: "msgs" });
   const waitTitle = h("div", { className: "t" });
   const waitSub = h("div", { className: "s" });
-  const wait = h("div", { className: "wait", hidden: true }, spinner(), h("div", {}, waitTitle, waitSub));
+  const cancelBtn = h("button", { className: "gbtn", attrs: { type: "button" }, text: "Cancel" });
+  const sendNowBtn = h("button", { className: "gbtn", attrs: { type: "button" }, text: "Send now" });
+  const heldActions = h("div", { className: "held-actions", hidden: true }, cancelBtn, sendNowBtn);
+  const wait = h("div", { className: "wait", hidden: true }, spinner(), h("div", { className: "wait-body" }, waitTitle, waitSub, heldActions));
   const input = h("textarea", { attrs: { rows: "1", placeholder: "Reply…", "aria-label": "Reply" } });
   const sendBtn = h("button", { className: "sq", attrs: { type: "button", "aria-label": "Send reply" } }, icon("up", 16));
   const reply = h("div", { className: "reply" }, input, sendBtn);
@@ -66,7 +71,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   }
 
   function renderMessages(t: Thread): void {
-    const key = `${t.id}:${t.messages.map((m) => m.id).join(",")}`;
+    const key = `${t.id}:${t.messages.map((m) => `${m.id}${m.held ? "h" : ""}`).join(",")}`;
     if (key === renderedKey) return;
     renderedKey = key;
     msgs.replaceChildren(
@@ -76,7 +81,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
           ? h("span", { className: "av you", attrs: { "aria-hidden": "true" } }, icon("person", 12))
           : h("span", { className: "av agent", attrs: { "aria-hidden": "true" }, text: ">_" });
         const name = you ? "You" : agentName(m.kind || t.agentKind);
-        const meta = you ? ago(m.at) : `via herdr · ${ago(m.at)}`;
+        const meta = you ? (m.held ? `${ago(m.at)} · queued` : ago(m.at)) : `via herdr · ${ago(m.at)}`;
         return h("div", { className: "msg" },
           h("div", { className: "who" }, avatar, h("b", { text: name }), h("span", { className: "meta", text: meta })),
           h("div", { className: "text", text: m.text }),
@@ -103,6 +108,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       waitSub.textContent = w.sub;
       wait.classList.toggle("warn", w.warn);
     }
+    heldActions.hidden = !isHeld(t);
     // The reply box stays while it waits: whatever is typed goes into the
     // agent's own queue behind the comment it is still working on.
     wait.hidden = !t.waiting;
@@ -174,6 +180,54 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
     }
   }
 
+  async function cancelHeld(): Promise<void> {
+    const t = openId ? deps.store.get(openId) : undefined;
+    if (!t) return;
+    try {
+      const res = await deps.api.cancel(t.id);
+      if (!res.ok) {
+        setNote(res.error, "warn");
+        deps.changed();
+        return;
+      }
+      if (res.deleted) {
+        deps.store.remove(t.id);
+        close();
+        deps.cancelled(t, res.texts);
+        return;
+      }
+      if (res.thread) deps.store.upsert(res.thread);
+      // The follow-ups it held go back into the box, ready to edit or drop.
+      const back = res.texts.join("\n\n");
+      input.value = input.value ? `${back}\n\n${input.value}` : back;
+      fitInput();
+      input.focus();
+    } catch {
+      setNote(`Bridge not reachable at ${ctx.bridge}.`, "err");
+    }
+  }
+
+  async function sendNow(): Promise<void> {
+    const t = openId ? deps.store.get(openId) : undefined;
+    if (!t) return;
+    sendNowBtn.disabled = true;
+    try {
+      const res = await deps.api.deliver(t.id, ctx.prefs.targetAgent);
+      if (!res.ok) {
+        setNote(res.error, res.reason === "agent_blocked" || res.reason === "not_held" ? "warn" : "err");
+        if (res.candidates.length > 0) deps.settings.open(pop.getBoundingClientRect(), res.candidates);
+        return;
+      }
+      if (res.rerouted) setNote("That terminal was closed — sent to another agent with the whole thread.", "warn");
+      if (res.thread) deps.store.upsert(res.thread);
+      deps.changed();
+    } catch {
+      setNote(`Bridge not reachable at ${ctx.bridge}.`, "err");
+    } finally {
+      sendNowBtn.disabled = false;
+    }
+  }
+
   function close(): void {
     openId = null;
     renderedKey = "";
@@ -183,6 +237,8 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   }
 
   closeBtn.addEventListener("click", () => close());
+  cancelBtn.addEventListener("click", () => void cancelHeld());
+  sendNowBtn.addEventListener("click", () => void sendNow());
   resolveBtn.addEventListener("click", () => void resolve());
   sendBtn.addEventListener("click", () => void sendReply());
   goBtn.addEventListener("click", () => {

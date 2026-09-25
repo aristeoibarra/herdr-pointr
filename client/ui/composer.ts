@@ -29,6 +29,8 @@ export interface Composer {
    * even if its elements are still rendering.
    */
   restore(): boolean;
+  /** Opens on these elements with this text — a cancelled comment coming back. */
+  edit(elements: Element[], text: string): void;
 }
 
 export interface ComposerDeps {
@@ -268,6 +270,18 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
     saveComposeDraft(null);
   }
 
+  function reopen(elements: Element[], text: string): void {
+    items = elements.map((element) => ({ element, payload: buildElementPayload(element) }));
+    setShot(false);
+    setNote("");
+    void refreshDestination();
+    pop.hidden = false;
+    textarea.value = text;
+    render();
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+  }
+
   closeBtn.addEventListener("click", () => close());
   sendBtn.addEventListener("click", () => void send());
   shotBtn.addEventListener("click", () => setShot(!shot));
@@ -304,6 +318,9 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
     close,
     reposition,
     refreshDestination: () => void refreshDestination(),
+    edit(elements, text) {
+      reopen(elements, text);
+    },
     restore() {
       const draft = takeComposeDraft();
       if (!draft) return false;
@@ -317,15 +334,7 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
           if (++tries < 5) window.setTimeout(attempt, 400);
           return;
         }
-        items = found.map((element) => ({ element, payload: buildElementPayload(element) }));
-        setShot(false);
-        setNote("");
-        void refreshDestination();
-        pop.hidden = false;
-        textarea.value = draft.text;
-        render();
-        textarea.focus();
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        reopen(found, draft.text);
       };
       if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", attempt, { once: true, signal: ctx.signal });

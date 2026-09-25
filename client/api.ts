@@ -28,6 +28,8 @@ export interface ThreadMessage {
   at: number;
   kind: string;
   busyAtSend: boolean;
+  /** Kept by the bridge until the agent is free: can still be cancelled. */
+  held: boolean;
 }
 
 export interface Thread {
@@ -93,6 +95,14 @@ export interface MessageSuccess {
   rerouted: boolean;
 }
 
+export interface CancelSuccess {
+  ok: true;
+  /** The agent never saw the thread, so it is gone. */
+  deleted: boolean;
+  texts: string[];
+  thread: Thread | null;
+}
+
 export interface SendBody {
   message: string;
   url: string;
@@ -146,6 +156,7 @@ function readMessage(v: unknown): ThreadMessage | null {
     at: num(v, "at"),
     kind: str(v, "kind"),
     busyAtSend: bool(v, "busyAtSend"),
+    held: bool(v, "held"),
   };
 }
 
@@ -206,6 +217,8 @@ export interface Api {
   send(body: SendBody): Promise<SendSuccess | Failure>;
   message(id: string, text: string, targetAgent: AgentPin | null): Promise<MessageSuccess | Failure>;
   resolve(id: string, resolved: boolean): Promise<Thread | null>;
+  cancel(id: string): Promise<CancelSuccess | Failure>;
+  deliver(id: string, targetAgent: AgentPin | null): Promise<MessageSuccess | Failure>;
   read(id: string): Promise<Thread | null>;
   agents(): Promise<AgentEntry[]>;
   destination(url: string): Promise<Destination>;
@@ -275,6 +288,23 @@ export function createApi(bridge: string): Api {
     async resolve(id, resolved) {
       const data = await post("/threads/resolve", { id, resolved });
       return bool(data, "ok") ? readThread(data["thread"]) : null;
+    },
+
+    async cancel(id) {
+      const data = await post("/threads/cancel", { id });
+      if (!bool(data, "ok")) return readFailure(data, "Could not cancel it.");
+      return {
+        ok: true,
+        deleted: bool(data, "deleted"),
+        texts: list(data, "texts").filter((t): t is string => typeof t === "string"),
+        thread: readThread(data["thread"]),
+      };
+    },
+
+    async deliver(id, targetAgent) {
+      const data = await post("/threads/deliver", { id, url: location.href, targetAgent });
+      if (!bool(data, "ok")) return readFailure(data, "Could not send it.");
+      return { ok: true, thread: readThread(data["thread"]), rerouted: bool(data, "rerouted") };
     },
 
     async read(id) {
