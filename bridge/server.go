@@ -262,6 +262,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleSend(w, r)
 	case r.Method == http.MethodPost && path == "/threads/reply":
 		s.handleThreadReply(w, r)
+	case r.Method == http.MethodPost && path == "/threads/message":
+		s.handleThreadMessage(w, r)
+	case r.Method == http.MethodPost && path == "/threads/resolve":
+		s.handleThreadResolve(w, r)
+	case r.Method == http.MethodPost && path == "/threads/read":
+		s.handleThreadRead(w, r)
 	default:
 		sendJSON(w, 404, map[string]any{"ok": false, "reason": "not_found", "error": "not found"})
 	}
@@ -389,12 +395,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	live, _ := s.agents(false)
 	res := resolveTarget(s.routingInput(live, *payload.URL, overrideFrom(payload)))
 	if res.Kind != "resolved" {
-		message := "No agent found for this project. Open one in herdr inside the project directory, or pin one."
-		if res.Kind == "ambiguous" {
-			message = "Several agents could be working on this project — pick one behind the gear in the panel."
-		}
-		sendJSON(w, 409, map[string]any{"ok": false, "reason": noMatchReason(res), "error": message,
-			"candidates": entriesAmong(res.Candidates, live), "trace": res.Trace})
+		sendNoTarget(w, res, live)
 		return
 	}
 
@@ -447,16 +448,33 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// sendNoTarget answers a send that routing could not settle, with the
+// candidates the widget offers in its destination picker.
+func sendNoTarget(w http.ResponseWriter, res Resolution, live []Agent) {
+	message := "No agent found for this project. Open one in herdr inside the project directory, or pin one."
+	if res.Kind == "ambiguous" {
+		message = "Several agents could be working on this project — pick one as the destination."
+	}
+	sendJSON(w, 409, map[string]any{"ok": false, "reason": noMatchReason(res), "error": message,
+		"candidates": entriesAmong(res.Candidates, live), "trace": res.Trace})
+}
+
 // abandon rolls back a thread whose first prompt failed — unless herdr may
 // have typed it anyway (a timeout, a garbled answer), in which case the agent
 // could still reply and the thread has to exist for it.
 func (s *Server) abandon(id string, err error) {
-	var herr *HerdrError
-	if errors.As(err, &herr) && (herr.Code == "timeout" || herr.Code == "protocol") {
+	if mayHaveTyped(err) {
 		_, _ = s.threads.commit(id)
 		return
 	}
 	s.threads.drop(id)
+}
+
+// mayHaveTyped: herdr failed in a way that does not prove the prompt never
+// reached the terminal.
+func mayHaveTyped(err error) bool {
+	var herr *HerdrError
+	return errors.As(err, &herr) && (herr.Code == "timeout" || herr.Code == "protocol")
 }
 
 func (s *Server) sendFailure(w http.ResponseWriter, err error, paneID string) {

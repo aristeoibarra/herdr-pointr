@@ -177,6 +177,88 @@ func formatPrompt(payload SendPayload, pageURL, screenshotPath, threadID, replyC
 	return strings.Join(lines, "\n")
 }
 
+// formatFollowUp renders a reply the user wrote inside a thread. The whole
+// thread goes along every time, capped, rather than only the new message:
+// the pane may have restarted, or the thread moved to another agent, and
+// neither would remember the start of the conversation.
+func formatFollowUp(t Thread, cmd string) string {
+	lines := []string{"[pointr] Follow-up · thread " + t.ID, "Page: " + t.URL}
+	if about := describeAnchors(t.Anchors); about != "" {
+		lines = append(lines, "About: "+about)
+	}
+	if len(t.Messages) == 0 {
+		return strings.Join(append(lines, replyInstructions(cmd)...), "\n")
+	}
+	earlier, latest := t.Messages[:len(t.Messages)-1], t.Messages[len(t.Messages)-1]
+	lines = append(lines, "", "Thread so far, oldest first:")
+	lines = append(lines, historyLines(earlier, 4000)...)
+	lines = append(lines, "", "New from the user:", latest.Text)
+	return strings.Join(append(lines, replyInstructions(cmd)...), "\n")
+}
+
+// describeAnchors names what a thread is about in one line, enough for the
+// agent to find it again: component, source, selector.
+func describeAnchors(anchors []Anchor) string {
+	if len(anchors) == 0 {
+		return ""
+	}
+	a := anchors[0]
+	name := a.Tag
+	if a.ID != "" {
+		name += "#" + a.ID
+	}
+	if a.Component != "" {
+		name = "<" + a.Component + ">"
+	}
+	if a.Framework != "" {
+		name += " (" + a.Framework + ")"
+	}
+	parts := []string{name}
+	if a.Source != "" {
+		parts = append(parts, a.Source)
+	}
+	if a.Selector != "" {
+		parts = append(parts, a.Selector)
+	}
+	out := strings.Join(parts, " — ")
+	if more := len(anchors) - 1; more > 0 {
+		out += fmt.Sprintf(" (+%d more)", more)
+	}
+	return out
+}
+
+// historyLines keeps the first message — what the thread is about — and as
+// many of the newest as fit the budget, noting what was left out between.
+func historyLines(messages []Message, budget int) []string {
+	if len(messages) == 0 {
+		return []string{"(nothing yet)"}
+	}
+	line := func(m Message) string {
+		who := "User"
+		if m.From == "agent" {
+			who = "Agent"
+		}
+		return who + ": " + truncate(m.Text, 1200)
+	}
+	first := line(messages[0])
+	used := len([]rune(first))
+	var tail []string
+	i := len(messages) - 1
+	for ; i >= 1; i-- {
+		l := line(messages[i])
+		if used+len([]rune(l)) > budget {
+			break
+		}
+		used += len([]rune(l))
+		tail = append([]string{l}, tail...)
+	}
+	out := []string{first}
+	if i >= 1 {
+		out = append(out, fmt.Sprintf("(%d earlier messages omitted)", i))
+	}
+	return append(out, tail...)
+}
+
 // replyInstructions end every prompt. The answer goes back to where the user
 // asked, next to the element, and stays short because it reads as a comment.
 // The heredoc delimiter is POINTR, not EOF: a reply quoting a line that says

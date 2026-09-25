@@ -181,6 +181,39 @@ func TestProjectKeyFor(t *testing.T) {
 	})
 }
 
+func TestFollowUpTarget(t *testing.T) {
+	elsewhere := func() Resolution {
+		a := agent("w2:p1", "/repo")
+		return Resolution{Kind: "resolved", Agent: &a, Via: "port"}
+	}
+	t.Run("stays with the thread's pane even when routing now picks another", func(t *testing.T) {
+		// The conversation lives in that pane; sending the follow-up to
+		// whoever routing favours today would answer it without its context.
+		called := false
+		res, rerouted := followUpTarget("w1:p1", []Agent{agent("w1:p1", "/old"), agent("w2:p1", "/repo")}, func() Resolution {
+			called = true
+			return elsewhere()
+		})
+		if rerouted || called || res.Agent == nil || res.Agent.PaneID != "w1:p1" {
+			t.Fatalf("got %+v rerouted=%v routed=%v", res.Agent, rerouted, called)
+		}
+	})
+	t.Run("routes afresh only when the pane is gone", func(t *testing.T) {
+		res, rerouted := followUpTarget("w1:p1", []Agent{agent("w2:p1", "/repo")}, elsewhere)
+		if !rerouted || res.Agent == nil || res.Agent.PaneID != "w2:p1" {
+			t.Fatalf("got %+v rerouted=%v", res.Agent, rerouted)
+		}
+	})
+	t.Run("reports ambiguity instead of guessing", func(t *testing.T) {
+		res, _ := followUpTarget("w1:p1", nil, func() Resolution {
+			return Resolution{Kind: "ambiguous", Candidates: []Agent{agent("w2:p1", "/a"), agent("w3:p1", "/a")}}
+		})
+		if res.Kind != "ambiguous" || res.Agent != nil {
+			t.Fatalf("got %+v", res)
+		}
+	})
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

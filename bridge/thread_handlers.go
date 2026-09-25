@@ -166,3 +166,97 @@ func (s *Server) handleThreadReply(w http.ResponseWriter, r *http.Request) {
 	}
 	sendJSON(w, 200, map[string]any{"ok": true, "id": t.ID, "resolved": t.ResolvedAt != 0})
 }
+
+// handleThreadMessage sends a reply the user wrote inside a thread. It goes
+// to the pane holding the conversation while that pane lives, and routes
+// afresh — honouring the tab's own destination — only once it is gone.
+func (s *Server) handleThreadMessage(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID          string    `json:"id"`
+		Text        string    `json:"text"`
+		URL         string    `json:"url"`
+		TargetAgent *AgentPin `json:"targetAgent"`
+	}
+	if !decodeBody(w, r, maxThreadBodyBytes, &body) {
+		return
+	}
+	text := strings.TrimSpace(body.Text)
+	if body.ID == "" || text == "" {
+		sendJSON(w, 400, map[string]any{"ok": false, "reason": "invalid_request", "error": "id and text are required"})
+		return
+	}
+	current, _, err := s.threads.find(body.ID)
+	if err != nil {
+		unknownThread(w, body.ID)
+		return
+	}
+	pageURL := body.URL
+	if pageURL == "" {
+		pageURL = current.URL
+	}
+	var override *AgentPin
+	if body.TargetAgent != nil && body.TargetAgent.PaneID != "" {
+		override = body.TargetAgent
+	}
+	live, _ := s.agents(false)
+	res, rerouted := followUpTarget(current.Pane, live, func() Resolution {
+		return resolveTarget(s.routingInput(live, pageURL, override))
+	})
+	if res.Kind != "resolved" {
+		sendNoTarget(w, res, live)
+		return
+	}
+	agent := res.Agent
+	message := Message{ID: randomID("m_", 4), From: "user", Text: text, BusyAtSend: agent.Status == "working"}
+	t, err := s.threads.appendMessage(body.ID, message, func(t *Thread) {
+		t.Pane, t.AgentKind = agent.PaneID, agent.Kind
+		t.ResolvedAt = 0
+		t.ReadAt = nowMs()
+	})
+	if err != nil {
+		unknownThread(w, body.ID)
+		return
+	}
+	if _, err := promptAgent(agent.PaneID, formatFollowUp(t, replyCommand(s.exe, s.cfg.Port, t.ID))); err != nil {
+		if !mayHaveTyped(err) {
+			s.threads.dropMessage(t.ID, message.ID)
+		}
+		s.sendFailure(w, err, agent.PaneID)
+		return
+	}
+	sendJSON(w, 200, map[string]any{"ok": true, "thread": view(t), "rerouted": rerouted, "project": project(agent.Cwd)})
+}
+
+// handleThreadResolve resolves a thread, or reopens it with resolved:false.
+func (s *Server) handleThreadResolve(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID       string `json:"id"`
+		Resolved *bool  `json:"resolved"`
+	}
+	if !decodeBody(w, r, maxThreadBodyBytes, &body) {
+		return
+	}
+	resolved := body.Resolved == nil || *body.Resolved
+	t, err := s.threads.setResolved(body.ID, resolved)
+	if err != nil {
+		unknownThread(w, body.ID)
+		return
+	}
+	sendJSON(w, 200, map[string]any{"ok": true, "thread": view(t)})
+}
+
+// handleThreadRead marks a thread's replies as seen.
+func (s *Server) handleThreadRead(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID string `json:"id"`
+	}
+	if !decodeBody(w, r, maxThreadBodyBytes, &body) {
+		return
+	}
+	t, err := s.threads.markRead(body.ID)
+	if err != nil {
+		unknownThread(w, body.ID)
+		return
+	}
+	sendJSON(w, 200, map[string]any{"ok": true, "thread": view(t)})
+}

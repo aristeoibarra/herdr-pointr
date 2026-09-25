@@ -382,3 +382,20 @@ func routeByPort(port string, agents []Agent, trace *[]string) (Resolution, bool
 	*trace = append(*trace, fmt.Sprintf("port %s -> %s -> no agent there", port, where))
 	return Resolution{}, false
 }
+
+// followUpTarget picks where a reply inside a thread goes: the pane holding
+// the conversation, for as long as it exists — even when routing would pick
+// someone else today, since the context is in that pane. Only a closed pane
+// re-routes, through the normal cascade, so ambiguity is still reported
+// rather than guessed.
+func followUpTarget(pane string, live []Agent, reroute func() Resolution) (Resolution, bool) {
+	for i := range live {
+		if pane != "" && live[i].PaneID == pane {
+			return Resolution{Kind: "resolved", Agent: &live[i], Via: "thread",
+				Trace: []string{fmt.Sprintf("thread: pane %s", pane)}}, false
+		}
+	}
+	res := reroute()
+	res.Trace = append([]string{fmt.Sprintf("thread: pane %s is gone, routing afresh", pane)}, res.Trace...)
+	return res, true
+}
