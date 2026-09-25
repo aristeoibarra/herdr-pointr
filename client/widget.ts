@@ -6,7 +6,7 @@
  */
 
 import { findAnchor } from "./anchor.ts";
-import { createApi, type Thread } from "./api.ts";
+import { createApi, type Anchor, type Thread } from "./api.ts";
 import type { WidgetContext } from "./context.ts";
 import { installDiagnostics } from "./diagnostics.ts";
 import { h } from "./dom.ts";
@@ -75,7 +75,10 @@ function mount(bridge: string): WidgetHandle {
       poller.kick();
     },
   });
-  const pins = createPins(ctx, (id) => openThread(id));
+  const pins = createPins(ctx, {
+    open: (id) => openThread(id),
+    renew: (id, index, anchor) => void moveAnchor(id, index, anchor),
+  });
   const threads = createThreadView(ctx, {
     api,
     store,
@@ -85,7 +88,7 @@ function mount(bridge: string): WidgetHandle {
     cancelled: (t, texts) => {
       const text = texts.join("\n\n");
       const here = store.isHere(t);
-      const elements = here ? t.anchors.map((a) => findAnchor(a, ctx.isOwn)).filter((el): el is Element => el !== null) : [];
+      const elements = here ? t.anchors.map((a) => findAnchor(a, ctx.isOwn)?.el ?? null).filter((el): el is Element => el !== null) : [];
       if (elements.length > 0) {
         composer.edit(elements, text);
         return;
@@ -96,6 +99,7 @@ function mount(bridge: string): WidgetHandle {
   const list = createThreadList(ctx, {
     store,
     settings,
+    elementFor: (id) => pins.elementFor(id),
     openThread: (id) => openThread(id),
     onToggle: (open) => dock.setListOpen(open),
   });
@@ -227,6 +231,17 @@ function mount(bridge: string): WidgetHandle {
     composer.close();
     list.close();
     threads.open(id);
+  }
+
+  /** Stores where a thread's pin finds its element; the answer updates every tab. */
+  async function moveAnchor(id: string, index: number, anchor: Anchor): Promise<boolean> {
+    try {
+      const updated = await api.setAnchor(id, index, anchor);
+      if (updated) store.upsert(updated);
+      return updated !== null;
+    } catch {
+      return false;
+    }
   }
 
   /** Esc closes the topmost thing the widget has open, one layer at a time. */

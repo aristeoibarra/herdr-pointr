@@ -135,7 +135,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   }
 
   function targetFor(t: Thread): Element | null {
-    return deps.elementFor(t.id) ?? findThreadTarget(t, ctx.isOwn);
+    return deps.elementFor(t.id) ?? findThreadTarget(t, ctx.isOwn)?.el ?? null;
   }
 
   function reposition(): void {

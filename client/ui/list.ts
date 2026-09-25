@@ -1,5 +1,4 @@
 import type { Thread } from "../api.ts";
-import { findThreadTarget } from "../anchor.ts";
 import type { WidgetContext } from "../context.ts";
 import { h, icon } from "../dom.ts";
 import { agentName, ago, isHeld, threadLabel } from "../status-text.ts";
@@ -17,6 +16,8 @@ export interface ThreadList {
 export interface ListDeps {
   store: Store;
   settings: SettingsPanel;
+  /** The element an open thread of this page is pinned to, if it is there. */
+  elementFor(id: string): Element | null;
   openThread(id: string): void;
   onToggle(open: boolean): void;
 }
@@ -66,7 +67,7 @@ export function createThreadList(ctx: WidgetContext, deps: ListDeps): ThreadList
   }
 
   function item(t: Thread, here: boolean): HTMLButtonElement {
-    const onPage = here && findThreadTarget(t, ctx.isOwn) !== null;
+    const onPage = here && deps.elementFor(t.id) !== null;
     const kind = t.resolved ? "resolved" : here && !onPage ? "gone" : t.waiting ? "waiting" : "replied";
     const mini = h("span", { className: `mini ${kind}` }, t.resolved ? icon("check", 11) : t.waiting ? icon("person", 11) : ">_");
     const button = h("button", { className: "item", attrs: { type: "button" } },

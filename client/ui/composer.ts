@@ -52,6 +52,8 @@ function anchorOf(p: ElementPayload): Anchor {
     source: p.source ?? "",
     text: squash(p.text).slice(0, 120),
     context: p.context,
+    pos: p.pos,
+    peers: p.peers,
   };
 }
 
@@ -314,7 +316,7 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
       const attempt = (): void => {
         // Started another comment meanwhile: that one wins.
         if (!pop.hidden || ctx.signal.aborted) return;
-        const found = draft.anchors.map((a) => findAnchor(a, ctx.isOwn)).filter((el): el is Element => el !== null);
+        const found = draft.anchors.map((a) => findAnchor(a, ctx.isOwn)?.el ?? null).filter((el): el is Element => el !== null);
         if (found.length === 0) {
           // An app may still be rendering what the comment is about.
           if (++tries < 5) window.setTimeout(attempt, 400);

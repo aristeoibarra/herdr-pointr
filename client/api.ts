@@ -10,6 +10,16 @@ import type { DiagnosticsPayload } from "./diagnostics.ts";
 import type { AgentPin } from "./prefs.ts";
 import { SEND_TIMEOUT_MS } from "./shot.ts";
 
+/** An element's box in document pixels: its center and size. */
+export interface AnchorPos {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Viewport width when measured: another width moves everything. */
+  vw: number;
+}
+
 export interface Anchor {
   selector: string;
   tag: string;
@@ -19,6 +29,8 @@ export interface Anchor {
   source: string;
   text: string;
   context: string;
+  pos: AnchorPos | null;
+  peers: string[];
 }
 
 export interface ThreadMessage {
@@ -146,7 +158,14 @@ export function readAnchor(v: unknown): Anchor | null {
     source: str(v, "source"),
     text: str(v, "text"),
     context: str(v, "context"),
+    pos: readPos(v["pos"]),
+    peers: list(v, "peers").filter((peer): peer is string => typeof peer === "string"),
   };
+}
+
+function readPos(v: unknown): AnchorPos | null {
+  if (!isJson(v) || num(v, "vw") <= 0) return null;
+  return { x: num(v, "x"), y: num(v, "y"), w: num(v, "w"), h: num(v, "h"), vw: num(v, "vw") };
 }
 
 function readMessage(v: unknown): ThreadMessage | null {
@@ -219,6 +238,8 @@ export interface Api {
   send(body: SendBody): Promise<SendSuccess | Failure>;
   message(id: string, text: string, targetAgent: AgentPin | null): Promise<MessageSuccess | Failure>;
   resolve(id: string, resolved: boolean): Promise<Thread | null>;
+  /** Moves where the pin finds its element. */
+  setAnchor(id: string, index: number, anchor: Anchor): Promise<Thread | null>;
   cancel(id: string): Promise<CancelSuccess | Failure>;
   deliver(id: string, targetAgent: AgentPin | null): Promise<MessageSuccess | Failure>;
   read(id: string): Promise<Thread | null>;
@@ -289,6 +310,11 @@ export function createApi(bridge: string): Api {
 
     async resolve(id, resolved) {
       const data = await post("/threads/resolve", { id, resolved });
+      return bool(data, "ok") ? readThread(data["thread"]) : null;
+    },
+
+    async setAnchor(id, index, anchor) {
+      const data = await post("/threads/anchor", { id, index, anchor });
       return bool(data, "ok") ? readThread(data["thread"]) : null;
     },
 
