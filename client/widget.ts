@@ -62,7 +62,8 @@ function mount(bridge: string): WidgetHandle {
 
   const api = createApi(bridge);
   const store = createStore();
-  const toast = createToaster(ctx);
+  // The dock is made further down; the toaster only asks for it when showing.
+  const toast = createToaster(ctx, () => dock.el);
   const settings = createSettings(ctx, { onChange: () => dock.refreshTitle() });
   const composer = createComposer(ctx, {
     api,

@@ -3,6 +3,7 @@ import { h, icon } from "../dom.ts";
 import { hotkeyLabel } from "../prefs.ts";
 
 export interface Dock {
+  readonly el: HTMLElement;
   /** Comments show once the widget can list them; until then only select does. */
   showComments(on: boolean): void;
   setSelecting(on: boolean): void;
@@ -46,6 +47,7 @@ export function createDock(ctx: WidgetContext, handlers: DockHandlers): Dock {
   };
 
   const dock: Dock = {
+    el,
     showComments(on) {
       sep.hidden = !on;
       pinsBtn.hidden = !on;
