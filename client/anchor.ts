@@ -5,12 +5,14 @@
  * A selector without positions (an id, a test id, a class) is trusted even
  * when the text changed — the agent may just have edited that text, and
  * dropping the pin exactly when the reply lands would be the worst moment.
- * A positional one (nth-of-type) only counts when the content still agrees:
- * after the DOM shifts it points at a neighbour, and a pin on the wrong
- * element misleads where no pin would not.
+ * A positional one (nth-of-type) only counts when the element still agrees
+ * — by its text, or when that was edited, by the text around it: after the
+ * DOM shifts it points at a neighbour, and a pin on the wrong element
+ * misleads where no pin would not.
  */
 
 import type { Anchor, Thread } from "./api.ts";
+import { contextOf } from "./capture.ts";
 import { inspectComponent } from "./frameworks/index.ts";
 
 const squash = (value: string): string => value.replace(/\s+/g, " ").trim();
@@ -22,6 +24,10 @@ function sameTag(el: Element, a: Anchor): boolean {
 function contentMatches(el: Element, a: Anchor): boolean {
   const want = a.text.replace(/…$/, "");
   if (want && squash(el.textContent ?? "").slice(0, want.length) === want) return true;
+  // Its own text changed — usually the very edit the comment asked for. Its
+  // surroundings did not, so it is the same element. A context that is only
+  // the marker (the element was all of its parent's text) proves nothing.
+  if (a.context.replace("…", "").trim() !== "" && contextOf(el) === a.context) return true;
   if (a.component) {
     try {
       return inspectComponent(el)?.component === a.component;

@@ -46,6 +46,10 @@ type Anchor struct {
 	Framework string `json:"framework"`
 	Source    string `json:"source"`
 	Text      string `json:"text"`
+	// The parent's text with this element's cut out: unchanged when the
+	// element itself is edited, different when a positional selector lands
+	// on a neighbour.
+	Context string `json:"context"`
 }
 
 type Message struct {
@@ -484,5 +488,6 @@ func anchorFrom(el Element) Anchor {
 		Framework: el.Framework,
 		Source:    el.Source,
 		Text:      truncate(el.Text, 120),
+		Context:   clipRunes(el.Context, 200),
 	}
 }

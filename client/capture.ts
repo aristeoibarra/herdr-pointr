@@ -15,6 +15,8 @@ export interface ElementPayload {
   role: string | null;
   accessibleName: string | null;
   text: string;
+  /** The parent's text around this element — see contextOf. */
+  context: string;
   styles: Record<string, string>;
   box: { x: number; y: number; w: number; h: number };
   html: string;
@@ -146,6 +148,25 @@ function compactHtml(el: Element): string {
   return clone.outerHTML;
 }
 
+const squash = (value: string): string => value.replace(/\s+/g, " ").trim();
+
+/**
+ * What surrounds an element: its parent's text with the element's own text
+ * cut out and its place marked. Editing the element leaves this unchanged;
+ * the page reshuffling so a positional selector lands on a neighbour does
+ * not. That is how a pin tells "the agent changed it" from "it is another
+ * element" when the element has no id to go by.
+ */
+export function contextOf(el: Element): string {
+  const parent = el.parentElement;
+  if (!parent) return "";
+  const own = squash(el.textContent ?? "");
+  const whole = squash(parent.textContent ?? "");
+  const at = own ? whole.indexOf(own) : -1;
+  const around = at >= 0 ? `${whole.slice(0, at)}…${whole.slice(at + own.length)}` : whole;
+  return around.slice(0, 200);
+}
+
 export function buildElementPayload(el: Element): ElementPayload {
   const rect = el.getBoundingClientRect();
   const info = inspectComponent(el);
@@ -164,6 +185,7 @@ export function buildElementPayload(el: Element): ElementPayload {
     role: el.getAttribute("role"),
     accessibleName: accessibleName(el),
     text: (el.textContent ?? "").trim(),
+    context: contextOf(el),
     styles: captureStyles(el),
     box: {
       x: Math.round(rect.x),

@@ -52,8 +52,11 @@ type Element struct {
 	Role           string     `json:"role"`
 	AccessibleName *string    `json:"accessibleName"`
 	Text           string     `json:"text"`
-	Styles         orderedMap `json:"styles"`
-	Box            struct {
+	// The parent's text around the element; kept with the thread so its pin
+	// survives the element's own text being edited.
+	Context string     `json:"context"`
+	Styles  orderedMap `json:"styles"`
+	Box     struct {
 		X float64 `json:"x"`
 		Y float64 `json:"y"`
 		W float64 `json:"w"`

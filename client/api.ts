@@ -18,6 +18,7 @@ export interface Anchor {
   framework: string;
   source: string;
   text: string;
+  context: string;
 }
 
 export interface ThreadMessage {
@@ -132,6 +133,7 @@ function readAnchor(v: unknown): Anchor | null {
     framework: str(v, "framework"),
     source: str(v, "source"),
     text: str(v, "text"),
+    context: str(v, "context"),
   };
 }
 
