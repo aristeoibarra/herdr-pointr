@@ -25,10 +25,7 @@ export interface AgentPin {
 }
 
 export interface Prefs {
-  autoSend: boolean;
-  /** Attach a screenshot to the next send — toggled from the panel itself. */
-  shot: boolean;
-  /** What the screenshot frames; remembered even while `shot` is off. */
+  /** What a screenshot frames. Whether to take one is decided per comment. */
   shotTarget: ShotTarget;
   /** Agent pinned in settings, or null for auto-routing. */
   targetAgent: AgentPin | null;
@@ -89,8 +86,6 @@ function readHotkey(value: unknown): Hotkey | null {
 /** Every field is validated on its own: one bad value never costs the rest. */
 export function loadPrefs(): Prefs {
   const prefs: Prefs = {
-    autoSend: true,
-    shot: false,
     shotTarget: "element",
     targetAgent: null,
     targetAgentLabel: null,
@@ -99,16 +94,12 @@ export function loadPrefs(): Prefs {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}");
     if (!isRecord(saved)) return prefs;
-    if (typeof saved["autoSend"] === "boolean") prefs.autoSend = saved["autoSend"];
-    if (typeof saved["shot"] === "boolean") prefs.shot = saved["shot"];
+    // autoSend and shot from earlier versions are ignored: every comment is
+    // submitted, and a screenshot is chosen per comment.
     const shotTarget = saved["shotTarget"];
     if (shotTarget === "element" || shotTarget === "viewport") prefs.shotTarget = shotTarget;
-    // shotMode was superseded by shot + shotTarget.
     const shotMode = saved["shotMode"];
-    if (shotMode === "off" || shotMode === "element" || shotMode === "viewport") {
-      prefs.shot = shotMode !== "off";
-      if (shotMode !== "off") prefs.shotTarget = shotMode;
-    }
+    if (shotMode === "element" || shotMode === "viewport") prefs.shotTarget = shotMode;
     const pin = saved["targetAgent"];
     if (isRecord(pin) && typeof pin["paneId"] === "string") {
       prefs.targetAgent = { paneId: pin["paneId"], session: typeof pin["session"] === "string" ? pin["session"] : null };

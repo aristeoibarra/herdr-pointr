@@ -87,7 +87,7 @@ function drawHighlights(dataUrl: string, boxes: DOMRect[]): Promise<string> {
       }
       ctx.drawImage(img, 0, 0);
       const scale = img.width / window.innerWidth;
-      ctx.strokeStyle = "#d97757";
+      ctx.strokeStyle = "#2563eb";
       ctx.lineWidth = Math.max(2, 3 * scale);
       for (const r of boxes) {
         ctx.strokeRect(r.x * scale, r.y * scale, r.width * scale, r.height * scale);

@@ -242,7 +242,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if res.Kind == "resolved" {
 			sendJSON(w, 200, map[string]any{
 				"ok": true, "project": project(res.Agent.Cwd),
-				"agent": map[string]any{"paneId": res.Agent.PaneID, "session": nullable(res.Agent.SessionID)},
+				"agent": map[string]any{"paneId": res.Agent.PaneID, "session": nullable(res.Agent.SessionID), "kind": res.Agent.Kind},
 				"via":   res.Via, "trace": res.Trace,
 			})
 			return
