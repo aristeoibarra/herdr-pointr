@@ -255,6 +255,29 @@ func (s *Server) handleThreadResolve(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, 200, map[string]any{"ok": true, "thread": view(t)})
 }
 
+// handleThreadAnchor replaces one of a thread's anchors: the widget renewing
+// it after the page changed under the pin, or the user pinning it again.
+func (s *Server) handleThreadAnchor(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID     string `json:"id"`
+		Index  int    `json:"index"`
+		Anchor Anchor `json:"anchor"`
+	}
+	if !decodeBody(w, r, maxThreadBodyBytes, &body) {
+		return
+	}
+	t, err := s.threads.setAnchor(body.ID, body.Index, body.Anchor)
+	if errors.Is(err, errBadAnchor) {
+		sendJSON(w, 400, map[string]any{"ok": false, "reason": "bad_anchor", "error": "that anchor cannot find an element"})
+		return
+	}
+	if err != nil {
+		unknownThread(w, body.ID)
+		return
+	}
+	sendJSON(w, 200, map[string]any{"ok": true, "thread": view(t)})
+}
+
 // handleThreadRead marks a thread's replies as seen.
 func (s *Server) handleThreadRead(w http.ResponseWriter, r *http.Request) {
 	var body struct {

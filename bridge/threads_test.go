@@ -11,6 +11,7 @@ func TestThreadStoreReload(t *testing.T) {
 	st := newThreadStore(dir)
 	reserved := st.reserve("/home/u/dev/shop", Thread{
 		URL: "http://localhost:3000/cart", Port: "3000", Path: "/cart", Pane: "w1:p1",
+		Anchors:  []Anchor{{Selector: ".total > span:nth-of-type(2)", Tag: "span", Text: "$40"}},
 		Messages: []Message{{From: "user", Text: "Is this the right total?"}},
 	})
 	if _, err := st.commit(reserved.ID); err != nil {
@@ -28,6 +29,21 @@ func TestThreadStoreReload(t *testing.T) {
 		}
 		if again.rev("/home/u/dev/shop") <= rev {
 			t.Fatal("rev went backwards across a restart")
+		}
+	})
+	// The widget renews an anchor once the page changed under the pin. Lost on
+	// a restart, the next load looks for the old element and the pin is gone.
+	t.Run("a moved pin survives a restart", func(t *testing.T) {
+		moved := Anchor{Selector: ".total > span:nth-of-type(2)", Tag: "span", Text: "$42", Context: "Total…", Pos: &Pos{X: 10, Y: 20, VW: 1280}}
+		if _, err := st.setAnchor(reserved.ID, 0, moved); err != nil {
+			t.Fatal(err)
+		}
+		got, _, err := newThreadStore(dir).find(reserved.ID)
+		if err != nil || len(got.Anchors) != 1 || got.Anchors[0].Text != "$42" || got.Anchors[0].Pos == nil {
+			t.Fatalf("anchor after reload: %+v, err %v", got.Anchors, err)
+		}
+		if _, err := st.setAnchor(reserved.ID, 1, moved); err == nil {
+			t.Fatal("an anchor the thread does not have was replaced")
 		}
 	})
 	t.Run("a reservation that never committed is gone after a restart", func(t *testing.T) {

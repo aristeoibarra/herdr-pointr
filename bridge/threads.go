@@ -49,10 +49,27 @@ type Anchor struct {
 	Framework string `json:"framework"`
 	Source    string `json:"source"`
 	Text      string `json:"text"`
-	// The parent's text with this element's cut out: unchanged when the
-	// element itself is edited, different when a positional selector lands
-	// on a neighbour.
+	// The text around the element in its nearest ancestor with other text,
+	// its own cut out: unchanged when the element itself is edited,
+	// different when a positional selector lands on a neighbour.
 	Context string `json:"context"`
+	// Where it sat on the page: a tie-breaker between look-alikes, ignored
+	// at another viewport width.
+	Pos *Pos `json:"pos,omitempty"`
+	// What the elements shaped like it nearby read. A candidate that reads
+	// like one of them is a neighbour that slid into its place — the element
+	// itself was removed — not the element edited.
+	Peers []string `json:"peers,omitempty"`
+}
+
+// Pos is an element's box in document pixels — center and size — and the
+// viewport width it was measured at.
+type Pos struct {
+	X  int `json:"x"`
+	Y  int `json:"y"`
+	W  int `json:"w"`
+	H  int `json:"h"`
+	VW int `json:"vw"`
 }
 
 type Message struct {
@@ -114,6 +131,10 @@ func (t *Thread) unread() bool {
 	}
 	return false
 }
+
+// errBadAnchor: an anchor with nothing to find the element by, or for an
+// element the thread does not have.
+var errBadAnchor = errors.New("bad anchor")
 
 func (t *Thread) clone() Thread {
 	c := *t
@@ -365,6 +386,25 @@ func (st *ThreadStore) setResolved(id string, resolved bool) (Thread, error) {
 	return t.clone(), nil
 }
 
+// setAnchor moves where a thread's pin finds its element: the widget renewing
+// the anchor after the page changed under it, or the user pinning it again.
+// Not activity — the thread keeps its place in the list.
+func (st *ThreadStore) setAnchor(id string, index int, a Anchor) (Thread, error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	t, pf := st.threadLocked(id)
+	if t == nil {
+		return Thread{}, errUnknownThread
+	}
+	if index < 0 || index >= len(t.Anchors) || a.Tag == "" || (a.Selector == "" && a.ID == "") {
+		return Thread{}, errBadAnchor
+	}
+	t.Anchors[index] = cleanAnchor(a)
+	pf.Rev++
+	st.persistLocked(pf)
+	return t.clone(), nil
+}
+
 func (st *ThreadStore) markRead(id string) (Thread, error) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -585,14 +625,44 @@ func clipRunes(value string, max int) string {
 
 // anchorFrom keeps the fields that find an element again, and nothing else.
 func anchorFrom(el Element) Anchor {
-	return Anchor{
-		Selector:  clipRunes(el.Selector, 500),
+	return cleanAnchor(Anchor{
+		Selector:  el.Selector,
 		Tag:       el.Tag,
 		ID:        el.ID,
 		Component: el.Component,
 		Framework: el.Framework,
 		Source:    el.Source,
-		Text:      truncate(el.Text, 120),
-		Context:   clipRunes(el.Context, 200),
+		Text:      el.Text,
+		Context:   el.Context,
+		Pos:       el.Pos,
+		Peers:     el.Peers,
+	})
+}
+
+// cleanAnchor keeps an anchor to what finding the element needs, clipped:
+// it is stored with every thread and comes from a browser.
+func cleanAnchor(a Anchor) Anchor {
+	out := Anchor{
+		Selector:  clipRunes(a.Selector, 500),
+		Tag:       clipRunes(a.Tag, 40),
+		ID:        clipRunes(a.ID, 200),
+		Component: clipRunes(a.Component, 200),
+		Framework: clipRunes(a.Framework, 40),
+		Source:    clipRunes(a.Source, 300),
+		Text:      truncate(a.Text, 120),
+		Context:   clipRunes(a.Context, 200),
 	}
+	if a.Pos != nil && a.Pos.VW > 0 {
+		p := *a.Pos
+		out.Pos = &p
+	}
+	for _, peer := range a.Peers {
+		if len(out.Peers) == 12 {
+			break
+		}
+		if peer = clipRunes(peer, 40); peer != "" {
+			out.Peers = append(out.Peers, peer)
+		}
+	}
+	return out
 }

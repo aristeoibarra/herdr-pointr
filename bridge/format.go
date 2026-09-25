@@ -52,9 +52,11 @@ type Element struct {
 	Role           string     `json:"role"`
 	AccessibleName *string    `json:"accessibleName"`
 	Text           string     `json:"text"`
-	// The parent's text around the element; kept with the thread so its pin
-	// survives the element's own text being edited.
+	// Kept with the thread, never shown to the agent: they are how its pin
+	// finds the element again after the page changed (see Anchor).
 	Context string     `json:"context"`
+	Pos     *Pos       `json:"pos"`
+	Peers   []string   `json:"peers"`
 	Styles  orderedMap `json:"styles"`
 	Box     struct {
 		X float64 `json:"x"`

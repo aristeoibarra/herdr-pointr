@@ -272,6 +272,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleThreadMessage(w, r)
 	case r.Method == http.MethodPost && path == "/threads/resolve":
 		s.handleThreadResolve(w, r)
+	case r.Method == http.MethodPost && path == "/threads/anchor":
+		s.handleThreadAnchor(w, r)
 	case r.Method == http.MethodPost && path == "/threads/read":
 		s.handleThreadRead(w, r)
 	case r.Method == http.MethodPost && path == "/threads/cancel":
