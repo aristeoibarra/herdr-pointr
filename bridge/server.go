@@ -91,6 +91,8 @@ type DevServer struct {
 	Project string       `json:"project"`
 	Cwd     string       `json:"cwd"`
 	Agents  []AgentEntry `json:"agents"`
+	// Replies in this project's threads nobody has opened yet.
+	Unread int `json:"unread"`
 }
 
 func newServer(cfg Config) *Server {
@@ -341,6 +343,7 @@ func (s *Server) devServers(live []Agent) []DevServer {
 		servers = append(servers, DevServer{
 			Port: port, Project: project(cwd), Cwd: cwd,
 			Agents: entriesAmong(matchAgents(cwd, live, isInformativeProjectDir), live),
+			Unread: s.threads.unread(cwd),
 		})
 	}
 	sort.Slice(servers, func(i, j int) bool { return servers[i].Port < servers[j].Port })
