@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A dev-only **herdr plugin** that lets you select DOM elements in any localhost app and send them —
-with React component name/ancestry, a clean selector, computed styles, and an optional screenshot —
-into the coding agent that owns that project. One global bridge serves every project; routing from
+A dev-only **herdr plugin** that lets you comment on DOM elements in any localhost app. The comment
+goes — with React component name/ancestry, a clean selector, computed styles, and an optional
+screenshot — into the coding agent that owns that project, and the agent's answer comes back as a
+thread pinned to the element (`pointr reply`). One global bridge serves every project; routing from
 browser tab to the right agent is automatic (dev-server port → cwd → agent). Agent-agnostic: herdr
 detects 24 agent kinds, so nothing here is specific to Claude Code. Linux and macOS.
 
@@ -15,21 +16,24 @@ detects 24 agent kinds, so nothing here is specific to Claude Code. Linux and ma
 ```bash
 npm run build      # tsup (widget → bridge/web/) then go build → dist/pointr, one static binary
 npm run typecheck  # tsc --noEmit (client/) and go vet (bridge/)
-npm test           # go test ./bridge — routing and the version check
+npm test           # go test ./bridge — routing, thread delivery and the version check
 ```
 
 Needs Go and Node to build; the built binary needs neither. `npm run typecheck && npm test` is
 the gate before committing, and shell scripts go through `shellcheck`.
 
-Tests cover routing and nothing else, deliberately. Everything else fails loudly — a bad herdr
-call errors, a broken widget shows an error. Routing is the one place where being wrong is
-*invisible*: it does not fail, it delivers somewhere else. The cases in
-`bridge/routing_test.go` are the shapes that actually misrouted.
+Tests cover what delivers somewhere else when it is wrong, and nothing else, deliberately.
+Everything else fails loudly — a bad herdr call errors, a broken widget shows an error. Routing is
+where being wrong is *invisible*: it does not fail, it delivers somewhere else. The cases in
+`bridge/routing_test.go` are the shapes that actually misrouted. Threads have the same failure
+shape, so `projectKeyFor`, `followUpTarget`, the reply command and a thread surviving a restart are
+tested too (`bridge/threads_test.go`): wrong there, a reply just never shows up where the user looks.
 
 Runtime CLI (`dist/pointr`): `start|stop|status` manage the background bridge, `serve` runs it in
 the foreground, `agents` lists what herdr can see, `pin`/`pick` choose a destination, `open`
-opens a dev server through the proxy, `doctor` checks herdr and port lookup. `GET /debug?port=N`
-returns the full resolution trace — the fastest way to answer "why did it route there?".
+opens a dev server through the proxy, `doctor` checks herdr and port lookup, `reply <thread-id>` is
+what agents run to answer a comment. `GET /debug?port=N` returns the full resolution trace — the
+fastest way to answer "why did it route there?" — and `threadsKey`, where that page's threads live.
 
 **Gotcha:** the widget and the setup page are **embedded** in the binary (`go:embed`). After
 editing anything under `client/` or `bridge/web/index.html`, re-run `npm run build` and restart
@@ -57,19 +61,66 @@ to start.
 In `client/`, imports use explicit `.ts` extensions (`allowImportingTsExtensions` + Bundler
 resolution); keep that style. `verbatimModuleSyntax` is on, so use `import type` for types.
 
+The widget is small modules wired by `client/widget.ts`: `ui/` holds the dock, composer, thread
+popover, list, settings and toast; `store.ts`/`poller.ts` keep the project's threads; `pins.ts` and
+`anchor.ts` put them on the page. Three rules hold across all of them:
+- **Text goes in as text.** `dom.ts`'s `h()` appends strings as text nodes; thread messages come from
+  agents, so nothing built from data passes through `innerHTML`.
+- **Everything lives in the shadow root**, pins included — the host's event guards are what keep a
+  host-page modal open while the widget is used.
+- **Every document/window listener registers with the mount's `AbortSignal`.** `Pointr.tsx` can load
+  the script twice (StrictMode, HMR); the new mount disposes the old one through
+  `window.__pointrWidget`, and the history hook is installed once per page.
+
 ## Request flow (the core path)
 
-1. Browser widget (`client/widget.ts`) captures one or more elements via `client/capture.ts`
-   (component name/ancestry **and serialized props** from the fiber), optionally rasterizes a
-   screenshot, and `POST`s `{message, url, elements, screenshot, autoSubmit, targetAgent,
-   diagnostics}` to `/send`. `diagnostics` is a ring buffer of recent console errors / uncaught
-   exceptions / failed fetches kept by `client/diagnostics.ts`.
-2. `bridge/server.go` resolves the destination via `bridge/routing.go` (cascade below),
-   `formatPrompt` (`bridge/format.go`) renders the agent-facing prompt, and a base64 screenshot is
-   written to a temp file so the agent can read it by path.
-3. `bridge/herdr.go` delivers it: `agent.prompt` when auto-submitting, `pasteText` otherwise.
-4. The widget opens `GET /status?agent=…` (SSE) and follows the agent's real lifecycle state until
-   it settles.
+1. The widget's composer (`client/ui/composer.ts`) captures one or more elements via
+   `client/capture.ts` (component name/ancestry **and serialized props** from the fiber),
+   optionally rasterizes a screenshot, and `POST`s `{message, url, page, elements, screenshot,
+   targetAgent, diagnostics}` to `/send`. `diagnostics` is a ring buffer of recent console errors /
+   uncaught exceptions / failed fetches kept by `client/diagnostics.ts`.
+2. `bridge/server.go` resolves the destination via `bridge/routing.go` (cascade below), reserves a
+   thread (`bridge/threads.go`), and `formatPrompt` (`bridge/format.go`) renders the agent-facing
+   prompt — ending with the exact `pointr reply` command for that thread. A base64 screenshot is
+   written to a temp file so the agent can read it by path; it is never stored with the thread.
+3. `bridge/herdr.go` delivers it with `agent.prompt`, then the thread is committed. (`pasteText`
+   remains only for `autoSubmit:false`, which only a widget from before threads sends.)
+4. The agent runs `pointr reply <id>`, which `POST`s to `/threads/reply`. The widget, which polls
+   `GET /threads` while anything waits, shows the reply in the thread next to the element.
+
+## Comment threads (bridge/threads.go, bridge/thread_handlers.go)
+
+- **Storage.** One JSON file per project in `stateDir()/threads/` (`<slug>-<hash>.json`, 0600),
+  loaded at startup, rewritten whole through `writeFileAtomic` on every change. The bridge is the
+  only writer. A file that does not parse is renamed `.corrupt-<ms>`, never overwritten. Resolved
+  threads go after 30 days; a project keeps at most 500.
+- **Reserve, then prompt, then commit.** A fast agent can reply before `agent.prompt` returns, so
+  the thread exists (hidden from lists) before the prompt goes out. It is dropped if herdr refused
+  definitively, and kept on a timeout or garbled answer, since the prompt may have been typed.
+- **Project key** (`projectKeyFor`): the dev server's directory (the same `portEvidence` routing
+  uses, proxy ports translated), then `projectPath`, then the origin. **Not** the agent's cwd:
+  which agent routing picks changes as panes open and close, and threads keyed on it would drop off
+  the page without an error. `Server.projectKey` caches per port and keeps the last good answer
+  through a dev-server restart. The **page key** is upstream port + path (+ hash route), computed
+  by the widget (`pageKey`), so an app and its Storybook do not share `/`.
+- **`rev`** is per project and persisted. A widget's `since` is "unchanged" only when it equals
+  `rev` exactly — a deleted file restarts at 0 and must force a full refetch.
+- **The reply path is HTTP only.** An agent pane has none of herdr's plugin variables, so
+  `pointr reply` would compute a different state dir and config than the bridge. The prompt spells
+  out this binary's absolute path (`os.Executable`) and this bridge's port; `shellWord` leaves a
+  plain path bare so a prefix allow rule matches. The heredoc delimiter is `POINTR`, not `EOF`.
+- **Follow-ups** (`/threads/message`) stay with the pane holding the conversation while it lives
+  (`followUpTarget`), and always carry the thread so far, capped — a restarted pane or a new agent
+  would not remember the start.
+- **No queue, no "no reply" detection.** Claude Code queues what `agent.prompt` types while it is
+  working (verified 2026-09-24, herdr 0.9.1: the queued comment ran as the next turn). herdr does not
+  track turns, so "finished without replying" cannot be told apart from "not there yet"; a thread
+  just waits and shows what its agent is doing.
+- **Read state lives in the bridge**, not the tab: `/servers` counts unread replies per project for
+  the setup page, and two tabs of one app must agree.
+- **No stream per tab.** The widget polls `/threads` once on load, then only while a thread waits
+  and the tab is visible, slower as the wait grows. A browser allows ~6 HTTP/1.1 connections per
+  host across all tabs; an SSE per tab would starve the bridge. `/status` (SSE) stays for tooling.
 
 ## Routing cascade (`resolveTarget` in bridge/routing.go)
 
@@ -130,6 +181,10 @@ All of these were verified against herdr 0.9.1 (protocol 22), not inferred from 
 - **`pane.send_text` has no `agent_blocked` guard**, unlike `agent.prompt`, so the no-submit path can
   answer an approval dialog. `/send` checks the last known status first; the race is documented and
   accepted.
+- **`agent.prompt` only refuses a `blocked` agent.** While it is `working` the text is typed and
+  Enter pressed; Claude Code queues it as the next turn.
+- **Pane ids are opaque.** Workspaces are not always numeric (`w3Y:p2`), so never match them with a
+  pattern like `w\d+:p\d+`.
 
 ## Running as a plugin (herdr-plugin.toml, bridge/daemon.go)
 
@@ -196,9 +251,11 @@ wrappers because Next renames them across versions; extend the pattern rather th
 
 ## Settings live in the widget
 
-The gear in the panel header opens them. Three settings: the destination agent,
-send-on-click, and the selection shortcut. They live in the page's
-`localStorage` (`pointr-prefs`), written on every change.
+The gear in the comment list, or the destination chip on a comment, opens them: the destination
+agent, the selection shortcut and the screenshot framing. The dock's bubble toggles the pins. They
+live in the page's `localStorage` (`pointr-prefs`), written on every change. Send-on-click is gone:
+every comment is submitted, since the thread is where it gets reviewed. Whether a comment carries a
+screenshot is chosen per comment and not remembered — an image in every comment costs context.
 
 - `localStorage` is per origin, and origin includes the port, so every setting
   is per app — including the shortcut. A destination chosen for one app not
