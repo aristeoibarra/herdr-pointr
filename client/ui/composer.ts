@@ -283,7 +283,9 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
     window.clearTimeout(persistTimer);
     persistTimer = window.setTimeout(persist, 300);
   });
-  textarea.addEventListener("keydown", (e) => {
+  // Anywhere in the composer, as its Send button says — not only in the
+  // text: after picking a destination with the keyboard, focus is on the chip.
+  pop.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       void send();
