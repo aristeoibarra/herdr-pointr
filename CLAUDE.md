@@ -17,6 +17,7 @@ detects 24 agent kinds, so nothing here is specific to Claude Code. Linux and ma
 npm run build      # tsup (widget → bridge/web/) then go build → dist/pointr, one static binary
 npm run typecheck  # tsc --noEmit (client/) and go vet (bridge/)
 npm test           # go test ./bridge — routing, thread delivery and the version check
+npm run scenarios  # builds dist/scenarios/anchor-scenarios.html: open it, every row must PASS
 ```
 
 Needs Go and Node to build; the built binary needs neither. `npm run typecheck && npm test` is
@@ -160,14 +161,16 @@ again is the normal case, not the edge.
 - **Last resort is manual.** A thread whose element is gone offers "Pin again"; a pinned one has
   "Move pin". Both replace the first anchor with a picked element.
 
-There is no automated test: the repo has no browser to run one in. The scoring was tuned against
-these scenarios, each guard failing at least one when removed: own text edited; text and its label
-edited in place; a sibling edited; old photo with the reply quoting the new text (and without,
-and a one-letter text — "Uno" became `"I"`);
-card removed (with and without the reply naming the neighbour); card inserted before (and edited);
-list reordered; list item removed; same-text buttons with a row inserted, removed, re-sorted;
-class renamed (and text edited); item removed while two were added and quoted; element replaced by
-another tag. Re-run them after touching a weight.
+The scoring was tuned against the scenarios in `client/dev/anchor-scenarios.ts`, and each guard
+fails at least one of them when removed: own text edited; text and its label edited in place; a
+sibling edited; old photos with the reply quoting the new text (a one-letter one too — "Uno" became
+`"I"`) and without; card removed (with and without the reply naming the neighbour); card inserted
+before (and edited); list reordered; list item removed; same-text buttons with a row inserted,
+removed, re-sorted; class renamed (and text edited); item removed while two were added and quoted;
+element replaced by another tag. `npm run scenarios` builds them into a page; open it in any
+browser and every row must read PASS (a driven browser can call `anchorScenarios()`). There is no
+browser in the repo's toolchain, so this is not part of `npm test`: re-run it after touching a
+weight.
 
 ## Routing cascade (`resolveTarget` in bridge/routing.go)
 
