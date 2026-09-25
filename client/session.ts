@@ -24,3 +24,23 @@ export function takeOpenThread(): string | null {
     return null;
   }
 }
+
+const draftKey = (id: string): string => `pointr-draft:${id}`;
+
+/** A reply being written, kept across the reload an agent's edit can trigger. */
+export function saveDraft(id: string, text: string): void {
+  try {
+    if (text.trim()) sessionStorage.setItem(draftKey(id), text);
+    else sessionStorage.removeItem(draftKey(id));
+  } catch {
+    /* not kept */
+  }
+}
+
+export function readDraft(id: string): string {
+  try {
+    return sessionStorage.getItem(draftKey(id)) ?? "";
+  } catch {
+    return "";
+  }
+}

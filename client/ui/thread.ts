@@ -3,6 +3,7 @@ import { findThreadTarget } from "../anchor.ts";
 import type { WidgetContext } from "../context.ts";
 import { h, icon, spinner } from "../dom.ts";
 import { pageKey } from "../navigation.ts";
+import { readDraft, rememberOpenThread, saveDraft } from "../session.ts";
 import { agentName, ago, threadLabel, waitingText } from "../status-text.ts";
 import type { Store } from "../store.ts";
 import { outline, place } from "./popover.ts";
@@ -147,6 +148,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
         return;
       }
       input.value = "";
+      saveDraft(openId, "");
       if (res.rerouted) setNote("That terminal was closed — sent to another agent with the whole thread.", "warn");
       if (res.thread) deps.store.upsert(res.thread);
       deps.changed();
@@ -175,6 +177,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
     renderedKey = "";
     pop.hidden = true;
     anchor.hidden = true;
+    rememberOpenThread(null);
   }
 
   closeBtn.addEventListener("click", () => close());
@@ -190,9 +193,13 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       void sendReply();
     }
   });
+  let draftTimer = 0;
   input.addEventListener("input", () => {
     input.style.height = "34px";
     input.style.height = `${Math.min(120, input.scrollHeight + 2)}px`;
+    window.clearTimeout(draftTimer);
+    const id = openId;
+    if (id) draftTimer = window.setTimeout(() => saveDraft(id, input.value), 300);
   });
 
   return {
@@ -203,10 +210,13 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       const t = deps.store.get(id);
       if (!t) return;
       if (openId !== id) {
-        input.value = "";
+        input.value = readDraft(id);
         setNote("");
       }
       openId = id;
+      // Kept for the tab: a reload — often the agent's own edit landing —
+      // brings the thread back open instead of dropping it.
+      rememberOpenThread(id);
       renderedKey = "";
       // Only a thread of this very page is pinned here: another page's
       // selector can match something unrelated on this one.
