@@ -27,10 +27,6 @@ var webFiles embed.FS
 
 const (
 	maxBodyBytes = 5_000_000
-	// How long a watcher is held open around a send. Long enough for the
-	// agent to start and the EventSource to connect, short enough that an
-	// abandoned tab doesn't pin a herdr socket.
-	sendWatch = 90 * time.Second
 	// Just long enough to collapse the burst of /resolve calls when tabs wake.
 	agentCacheTTL = time.Second
 	// A page's project is re-read from its port this often. Widgets poll every
@@ -62,8 +58,11 @@ type Server struct {
 	agentErr   error
 
 	threads *ThreadStore
-	keyMu   sync.Mutex
-	keys    map[string]portProjects
+	// This binary's own path, spelled out in the reply command every prompt
+	// carries: the agent's PATH does not have it.
+	exe   string
+	keyMu sync.Mutex
+	keys  map[string]portProjects
 }
 
 // portProjects is the cached evidence for one upstream port.
@@ -103,6 +102,12 @@ func newServer(cfg Config) *Server {
 		etags:   map[string]string{},
 		threads: newThreadStore(filepath.Join(stateDir(), "threads")),
 		keys:    map[string]portProjects{},
+		exe:     "pointr",
+	}
+	if exe, err := os.Executable(); err == nil {
+		s.exe = exe
+	} else {
+		fmt.Fprintln(os.Stderr, "threads: cannot find this binary's path; reply commands will say plain `pointr`")
 	}
 	// The bundles never change inside one binary, so their ETags are fixed.
 	for path, file := range scripts {
@@ -394,37 +399,42 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agent := res.Agent
+	upstream := upstreamURL(*payload.URL, s.proxies.aliases())
+	// Reserved before the prompt goes out: a quick agent can answer before
+	// herdr has even returned, and its reply needs a thread to land in.
+	thread := s.threads.reserve(s.projectKey(*payload.URL), newThreadFromSend(payload, upstream, agent))
 	screenshot := saveScreenshot(payload.Screenshot)
 	// The agent gets the URL it can reason about — the app's, not the proxy's.
-	prompt := formatPrompt(payload, upstreamURL(*payload.URL, s.proxies.aliases()), screenshot)
+	prompt := formatPrompt(payload, upstream, screenshot, thread.ID, replyCommand(s.exe, s.cfg.Port, thread.ID))
 	autoSubmit := payload.AutoSubmit == nil || *payload.AutoSubmit
 
 	if autoSubmit {
-		// Subscribe before prompting: subscriptions don't replay, so a watcher
-		// opened afterwards would miss the very transition it exists to report.
-		retain(agent.PaneID, sendWatch)
-		after, err := promptAgent(agent.PaneID, prompt)
-		if err != nil {
+		if _, err := promptAgent(agent.PaneID, prompt); err != nil {
+			s.abandon(thread.ID, err)
 			s.sendFailure(w, err, agent.PaneID)
 			return
 		}
-		if after != nil {
-			seed(agent.PaneID, after.Status, after.SessionID)
-		} else {
-			seed(agent.PaneID, "", agent.SessionID)
-		}
 	} else {
+		// Only a widget from before threads sends autoSubmit=false; it still
+		// gets a thread, so the agent's reply has somewhere to go.
+		//
 		// pane.send_text has no agent_blocked guard, so text typed into an
 		// open approval dialog could answer it. Check what we already know
 		// first: racy, but it turns the common case into a clear refusal.
 		if agent.Status == "blocked" {
+			s.threads.drop(thread.ID)
 			s.sendFailure(w, &HerdrError{"agent_blocked", "agent is blocked"}, agent.PaneID)
 			return
 		}
 		if err := pasteText(agent.PaneID, prompt); err != nil {
+			s.abandon(thread.ID, err)
 			s.sendFailure(w, err, agent.PaneID)
 			return
 		}
+	}
+	committed, err := s.threads.commit(thread.ID)
+	if err != nil {
+		committed = thread
 	}
 
 	// Show in herdr's sidebar which page this pane is pointed at. Self-expiring.
@@ -433,8 +443,20 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, 200, map[string]any{
 		"ok": true, "targetAgent": map[string]any{"paneId": agent.PaneID, "session": nullable(agent.SessionID)},
 		"project": project(agent.Cwd), "screenshot": nullable(screenshot), "status": agent.Status,
-		"autoSubmitted": autoSubmit, "stale": res.Stale,
+		"autoSubmitted": autoSubmit, "stale": res.Stale, "thread": view(committed),
 	})
+}
+
+// abandon rolls back a thread whose first prompt failed — unless herdr may
+// have typed it anyway (a timeout, a garbled answer), in which case the agent
+// could still reply and the thread has to exist for it.
+func (s *Server) abandon(id string, err error) {
+	var herr *HerdrError
+	if errors.As(err, &herr) && (herr.Code == "timeout" || herr.Code == "protocol") {
+		_, _ = s.threads.commit(id)
+		return
+	}
+	s.threads.drop(id)
 }
 
 func (s *Server) sendFailure(w http.ResponseWriter, err error, paneID string) {
