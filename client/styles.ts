@@ -95,21 +95,44 @@ button { font: inherit; color: inherit; }
 }
 .sbtn:hover { color: var(--ink); background: var(--line); }
 .dest {
-  position: relative; height: 24px; min-width: 0; max-width: 210px; padding-left: 8px;
-  display: inline-flex; align-items: center; gap: 6px; border-radius: 7px; background: var(--line);
-  color: var(--muted); font: 11px var(--mono); white-space: nowrap; overflow: hidden;
+  height: 24px; min-width: 0; max-width: 210px; padding: 0 5px 0 8px; display: inline-flex; align-items: center;
+  gap: 6px; border: 0; border-radius: 7px; background: var(--line); color: var(--muted);
+  font: 11px var(--mono); white-space: nowrap; cursor: pointer; overflow: hidden;
 }
-.dest:hover, .dest:focus-within { color: var(--ink); }
-.dest:has(select:focus-visible) { box-shadow: 0 0 0 1px var(--muted); }
-.dest select {
-  appearance: none; -webkit-appearance: none; field-sizing: content; min-width: 0; height: 24px;
-  margin: 0; padding: 0 22px 0 0; border: 0; background: transparent; color: inherit;
-  font: inherit; text-overflow: ellipsis; cursor: pointer; outline: none;
-}
-.dest option { background: var(--bg); color: var(--ink); font: 12px var(--sans); }
-.dest svg { position: absolute; right: 5px; pointer-events: none; }
+.dest .dtext { overflow: hidden; text-overflow: ellipsis; }
+.dest svg { flex-shrink: 0; transition: transform .15s; }
+.dest[aria-expanded="true"] svg { transform: rotate(180deg); }
+.dest:hover, .dest[aria-expanded="true"] { color: var(--ink); background: var(--line2); }
+.dest:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--muted); }
 .dest.warn { color: var(--warn); }
 .dest-row { display: flex; padding: 0 14px 10px; }
+.dmenu {
+  position: fixed; z-index: 2147483647; width: 300px; max-width: calc(100vw - 24px); max-height: min(360px, 60vh);
+  overflow-y: auto; overscroll-behavior: contain; padding: 5px; background: var(--bg);
+  border: 1px solid var(--line2); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.35), 0 1px 3px rgba(0,0,0,.2);
+  scrollbar-width: thin; scrollbar-color: var(--line2) transparent;
+}
+.dopt {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 6px; border: 0;
+  border-radius: 8px; background: transparent; color: var(--ink); text-align: left; cursor: pointer;
+}
+.dopt:hover, .dopt:focus-visible { background: var(--line); outline: none; }
+.dopt .ck { width: 16px; height: 16px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+.dopt .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.dopt .nm b, .dopt .nm span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dopt .nm b { font-size: 13px; font-weight: 500; }
+.dopt .nm span { font-size: 11.5px; color: var(--dim); }
+.st { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; font: 11px var(--mono); color: var(--dim); }
+.st .led { background: #52525b; }
+.st.idle .led, .st.done .led { background: var(--muted); }
+.st.working { color: var(--ink2); }
+.st.working .led { background: var(--ink); animation: pointr-pulse 1.4s ease-in-out infinite; }
+.st.blocked { color: var(--warn); }
+.st.blocked .led { background: var(--warn); }
+@keyframes pointr-pulse { 50% { opacity: .3; } }
+.dsep { height: 1px; margin: 5px 6px; background: var(--line); }
+.dhead { padding: 7px 8px 3px 30px; font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
+.dempty { padding: 8px 8px 8px 30px; font-size: 12px; color: var(--muted); }
 .led { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 14px 10px; }
 .chip {

@@ -16,6 +16,8 @@ export interface ThreadView {
   /** Re-reads the open thread from the store after an update. */
   refresh(): void;
   reposition(): void;
+  /** Keys for the destination list while it is open. */
+  handleKey(e: KeyboardEvent): boolean;
 }
 
 export interface ThreadDeps {
@@ -259,6 +261,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   }
 
   function close(): void {
+    dest.close();
     openId = null;
     renderedKey = "";
     pop.hidden = true;
@@ -336,5 +339,6 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       if (openId) render();
     },
     reposition,
+    handleKey: (e) => dest.handleKey(e),
   };
 }

@@ -30,6 +30,8 @@ export interface Composer {
   restore(): boolean;
   /** Opens on these elements with this text — a cancelled comment coming back. */
   edit(elements: Element[], text: string): void;
+  /** Keys for the destination list while it is open. */
+  handleKey(e: KeyboardEvent): boolean;
 }
 
 export interface ComposerDeps {
@@ -254,6 +256,7 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
   }
 
   function close(): void {
+    dest.close();
     pop.hidden = true;
     items = [];
     marks.replaceChildren();
@@ -309,6 +312,7 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
     edit(elements, text) {
       reopen(elements, text);
     },
+    handleKey: (e) => dest.handleKey(e),
     restore() {
       const draft = takeComposeDraft();
       if (!draft) return false;

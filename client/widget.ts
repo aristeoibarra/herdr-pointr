@@ -274,7 +274,7 @@ function mount(bridge: string): WidgetHandle {
   document.addEventListener(
     "keydown",
     (e) => {
-      if (settings.handleKey(e)) return;
+      if (settings.handleKey(e) || composer.handleKey(e) || threads.handleKey(e)) return;
       if (e.key === "Escape") {
         closeTopmost();
         return;

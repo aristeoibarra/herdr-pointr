@@ -84,6 +84,8 @@ export interface AgentEntry {
   label: string;
   kind: string;
   status: string;
+  /** The pane's title: what the agent says it is doing. */
+  title: string;
   session: string | null;
 }
 
@@ -212,6 +214,7 @@ function readAgentEntry(v: unknown): AgentEntry | null {
     label: str(v, "label"),
     kind: str(v, "kind"),
     status: str(v, "status"),
+    title: str(v, "title"),
     session: typeof session === "string" ? session : null,
   };
 }
