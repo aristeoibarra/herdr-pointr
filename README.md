@@ -62,6 +62,7 @@ When you are done, answer in the browser thread — the user reads it next to th
 POINTR
 - Asked for a change: make it, then reply with what you changed.
 - Asked a question or for your opinion: reply without editing any files.
+- Several pointr comments at once: reply to each thread id separately.
 ```
 
 The agent answers by running that command, which posts the reply to the thread; replies
