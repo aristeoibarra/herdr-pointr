@@ -6,84 +6,21 @@
 
 import { buildElementPayload, type ElementPayload } from "./capture.ts";
 import { getDiagnostics, installDiagnostics } from "./diagnostics.ts";
+import { hotkeyLabel, loadPrefs, matchesHotkey, normalizeHotkey, savePrefs as persistPrefs, type ShotTarget } from "./prefs.ts";
 import { loadDomToPng } from "./shot-loader.ts";
+import {
+  MAX_SHOT_CHARS,
+  SEND_TIMEOUT_MS,
+  SHOT_TIMEOUT_MS,
+  TimeoutError,
+  captureElement as captureElementPng,
+  captureViewport as captureViewportPng,
+  withTimeout,
+} from "./shot.ts";
 
 interface PickedItem {
   element: Element;
   payload: ElementPayload;
-}
-
-type ShotTarget = "element" | "viewport";
-
-interface Hotkey {
-  /** KeyboardEvent.code — layout-independent (Alt+C yields "ç" in e.key on macOS). */
-  code: string;
-  alt: boolean;
-  ctrl: boolean;
-  shift: boolean;
-  meta: boolean;
-}
-
-const DEFAULT_HOTKEY: Hotkey = { code: "KeyC", alt: true, ctrl: false, shift: false, meta: false };
-
-/**
- * Rasterizing waits on every image and font the element pulls in, and a picked
- * container can be the whole page — `domToPng` has no timeout of its own, so
- * without these the panel sits on "Sending…" forever with no way back.
- */
-const SHOT_TIMEOUT_MS = 15_000;
-const SEND_TIMEOUT_MS = 20_000;
-/** Base64 chars, kept under the bridge's 5 MB body cap with room for the prompt. */
-const MAX_SHOT_CHARS = 4_000_000;
-
-class TimeoutError extends Error {
-  constructor() {
-    super("timed out");
-    this.name = "TimeoutError";
-  }
-}
-
-/**
- * The underlying work keeps running (neither domToPng nor a stalled decode can
- * be cancelled) — this only stops the UI from waiting on it.
- */
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new TimeoutError()), ms);
-    const done = (): void => window.clearTimeout(timer);
-    promise.then(
-      (value) => {
-        done();
-        resolve(value);
-      },
-      (error: unknown) => {
-        done();
-        reject(error instanceof Error ? error : new Error(String(error)));
-      },
-    );
-  });
-}
-
-/**
- * A pinned destination. The session id rides along so the bridge can tell an
- * agent that restarted in the same terminal from one that never moved.
- */
-interface AgentPin {
-  paneId: string;
-  session: string | null;
-}
-
-interface Prefs {
-  autoSend: boolean;
-  /** Attach a screenshot to the next send — toggled from the panel itself. */
-  shot: boolean;
-  /** What the screenshot frames; remembered even while `shot` is off. */
-  shotTarget: ShotTarget;
-  /** Agent pinned in settings, or null for auto-routing. Per origin, as localStorage is. */
-  targetAgent: AgentPin | null;
-  /** Human label for the pinned agent, so the panel needn't refetch /agents. */
-  targetAgentLabel: string | null;
-  hotkey: Hotkey;
 }
 
 // Inline SVGs (no external assets — the widget is a single bundle).
@@ -353,38 +290,7 @@ function isWidgetHandle(value: unknown): value is WidgetHandle {
   fab.innerHTML = ICON_AI;
   gearBtn.innerHTML = ICON_GEAR;
 
-  const PREFS_KEY = "pointr-prefs";
-  const prefs: Prefs = {
-    autoSend: true,
-    shot: false,
-    shotTarget: "element",
-    targetAgent: null,
-    targetAgentLabel: null,
-    hotkey: { ...DEFAULT_HOTKEY },
-  };
-  try {
-    const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<Prefs> & {
-      shotMode?: string; // superseded by shot + shotTarget
-    };
-    if (typeof saved.autoSend === "boolean") prefs.autoSend = saved.autoSend;
-    if (typeof saved.shot === "boolean") prefs.shot = saved.shot;
-    if (saved.shotTarget === "element" || saved.shotTarget === "viewport") {
-      prefs.shotTarget = saved.shotTarget;
-    }
-    if (saved.shotMode === "off" || saved.shotMode === "element" || saved.shotMode === "viewport") {
-      prefs.shot = saved.shotMode !== "off";
-      if (saved.shotMode !== "off") prefs.shotTarget = saved.shotMode;
-    }
-    if (saved.targetAgent && typeof saved.targetAgent.paneId === "string") {
-      prefs.targetAgent = saved.targetAgent;
-    }
-    if (typeof saved.targetAgentLabel === "string") prefs.targetAgentLabel = saved.targetAgentLabel;
-    if (typeof saved.hotkey === "object" && saved.hotkey !== null && typeof saved.hotkey.code === "string") {
-      prefs.hotkey = normalizeHotkey(saved.hotkey);
-    }
-  } catch {
-    /* ignore */
-  }
+  const prefs = loadPrefs();
 
   function syncShotUi(): void {
     shotCheck.checked = prefs.shot;
@@ -394,45 +300,9 @@ function isWidgetHandle(value: unknown): value is WidgetHandle {
   }
   syncShotUi();
 
-  function hotkeyLabel(h: Hotkey): string {
-    const parts: string[] = [];
-    if (h.ctrl) parts.push("Ctrl");
-    if (h.alt) parts.push("Alt");
-    if (h.shift) parts.push("Shift");
-    if (h.meta) parts.push("⌘");
-    parts.push(h.code.replace(/^(?:Key|Digit)/, ""));
-    return parts.join("+");
-  }
-
-  function normalizeHotkey(h: Hotkey): Hotkey {
-    return {
-      code: h.code,
-      alt: h.alt === true,
-      ctrl: h.ctrl === true,
-      shift: h.shift === true,
-      meta: h.meta === true,
-    };
-  }
-
-  function matchesHotkey(e: KeyboardEvent, h: Hotkey): boolean {
-    return (
-      e.code === h.code &&
-      e.altKey === h.alt &&
-      e.ctrlKey === h.ctrl &&
-      e.shiftKey === h.shift &&
-      e.metaKey === h.meta
-    );
-  }
-
   const selectTitle = (): string => `Select an element (${hotkeyLabel(prefs.hotkey)})`;
 
-  const savePrefs = (): void => {
-    try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-    } catch {
-      /* ignore */
-    }
-  };
+  const savePrefs = (): void => persistPrefs(prefs);
 
   // ── Settings, in the widget ──────────────────────────────────────────────
   // Kept in the page's localStorage, which is scoped to the origin: a
@@ -707,64 +577,9 @@ function isWidgetHandle(value: unknown): value is WidgetHandle {
     });
   }
 
-  const area = (el: Element): number => {
-    const r = el.getBoundingClientRect();
-    return r.width * r.height;
-  };
-
-  /** PNG of the largest selected element — a tight crop, no surroundings. */
-  async function captureElement(targets: Element[]): Promise<string | null> {
-    const target = targets.reduce<Element | null>(
-      (best, el) => (best && area(best) >= area(el) ? best : el),
-      null,
-    );
-    if (!target) return null;
-    const domToPng = await loadDomToPng(BRIDGE_ORIGIN);
-    return domToPng(target, { scale: 1, backgroundColor: "#ffffff" });
-  }
-
-  /** The whole visible viewport with every selected element outlined — context, not a crop. */
-  async function captureViewport(targets: Element[]): Promise<string | null> {
-    const boxes = targets.map((el) => el.getBoundingClientRect());
-    const domToPng = await loadDomToPng(BRIDGE_ORIGIN);
-    const png = await domToPng(document.body, {
-      width: window.innerWidth,
-      height: window.innerHeight,
-      backgroundColor: "#ffffff",
-      filter: (node) => !(node instanceof Element && node.id === ROOT_ID),
-      style: {
-        transform: `translate(${-window.scrollX}px, ${-window.scrollY}px)`,
-        transformOrigin: "top left",
-      },
-    });
-    return drawHighlights(png, boxes);
-  }
-
-  function drawHighlights(dataUrl: string, boxes: DOMRect[]): Promise<string> {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          resolve(dataUrl);
-          return;
-        }
-        ctx.drawImage(img, 0, 0);
-        const scale = img.width / window.innerWidth;
-        ctx.strokeStyle = "#d97757";
-        ctx.lineWidth = Math.max(2, 3 * scale);
-        for (const r of boxes) {
-          ctx.strokeRect(r.x * scale, r.y * scale, r.width * scale, r.height * scale);
-        }
-        resolve(canvas.toDataURL("image/png"));
-      };
-      img.onerror = () => resolve(dataUrl);
-      img.src = dataUrl;
-    });
-  }
+  const captureElement = (targets: Element[]): Promise<string | null> => captureElementPng(BRIDGE_ORIGIN, targets);
+  const captureViewport = (targets: Element[]): Promise<string | null> =>
+    captureViewportPng(BRIDGE_ORIGIN, targets, ROOT_ID);
 
   async function send(): Promise<void> {
     const elements = [...picked.map((p) => p.payload)];
