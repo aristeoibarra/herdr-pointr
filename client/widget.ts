@@ -5,18 +5,22 @@
  * coding agent that owns the project.
  */
 
-import { createApi } from "./api.ts";
+import { createApi, type Thread } from "./api.ts";
 import type { WidgetContext } from "./context.ts";
 import { installDiagnostics } from "./diagnostics.ts";
 import { h } from "./dom.ts";
+import { NAVIGATE_EVENT, installHistoryHook, pageKey } from "./navigation.ts";
 import { createPins } from "./pins.ts";
 import { createPoller } from "./poller.ts";
 import { hotkeyLabel, loadPrefs, matchesHotkey, savePrefs } from "./prefs.ts";
 import { createSelector } from "./select.ts";
+import { rememberOpenThread, takeOpenThread } from "./session.ts";
+import { agentName } from "./status-text.ts";
 import { createStore } from "./store.ts";
 import { STYLES } from "./styles.ts";
 import { createComposer } from "./ui/composer.ts";
 import { createDock } from "./ui/dock.ts";
+import { createThreadList } from "./ui/list.ts";
 import { createSettings } from "./ui/settings.ts";
 import { createThreadView } from "./ui/thread.ts";
 import { createToaster } from "./ui/toast.ts";
@@ -84,9 +88,25 @@ function mount(bridge: string): WidgetHandle {
     settings,
     elementFor: (id) => pins.elementFor(id),
     changed: () => poller.kick(),
-    goTo: () => undefined,
+    goTo,
   });
-  const poller = createPoller(ctx, api, store, () => undefined);
+  const list = createThreadList(ctx, {
+    store,
+    openThread: (id) => openThread(id),
+    openSettings: (anchor) => settings.open(anchor),
+    onToggle: (open) => dock.setListOpen(open),
+  });
+  let firstLoad = true;
+  const poller = createPoller(ctx, api, store, (replied) => {
+    if (firstLoad) {
+      firstLoad = false;
+      // Arriving from "Go to page": open the thread it was going to.
+      const pending = takeOpenThread();
+      if (pending && store.get(pending)) openThread(pending);
+      else announceMissed();
+    }
+    announce(replied);
+  });
   const selector = createSelector(ctx, {
     onPick: (el) => composer.add(el),
     onChange: (active) => dock.setSelecting(active),
@@ -99,28 +119,110 @@ function mount(bridge: string): WidgetHandle {
       dock.setPins(prefs.pins);
       pins.setVisible(prefs.pins);
     },
-    toggleList: () => undefined,
+    toggleList: () => {
+      if (list.isOpen) {
+        list.close();
+        return;
+      }
+      composer.close();
+      threads.close();
+      settings.close();
+      list.open();
+    },
   });
   dock.setPins(prefs.pins);
   pins.setVisible(prefs.pins);
 
-  store.subscribe(() => {
+  function rerender(): void {
     const onPage = store.onPage();
     pins.render(onPage);
     dock.setCount(onPage.length);
     dock.setUnread(store.anyUnread());
     threads.refresh();
-  });
+    list.refresh();
+  }
+  store.subscribe(rerender);
+
+  /**
+   * A reply that is not already in view gets a toast: one on another page,
+   * or one on this page whose pin is hidden or has lost its element.
+   */
+  function announce(replied: Thread[]): void {
+    for (const t of replied) {
+      if (threads.openId === t.id) continue;
+      const here = t.port === store.port && t.path === pageKey();
+      if (here && prefs.pins && pins.elementFor(t.id)) continue;
+      toast.show(`${agentName(t.agentKind)} replied ${here ? "on this page" : `on ${t.path}`}`, {
+        kind: "reply",
+        ms: 8000,
+        action: { label: "View", run: () => openThread(t.id) },
+      });
+    }
+  }
+
+  /**
+   * Replies that landed on other pages while this tab was elsewhere or
+   * closed. This page's own show as pins; the others would go unnoticed.
+   */
+  function announceMissed(): void {
+    const missed = store.otherPageUnread();
+    const [only] = missed;
+    if (missed.length === 1 && only) {
+      toast.show(`${agentName(only.agentKind)} replied on ${only.path}`, {
+        kind: "reply",
+        ms: 8000,
+        action: { label: "View", run: () => openThread(only.id) },
+      });
+    } else if (missed.length > 1) {
+      toast.show(`${missed.length} replies waiting on other pages`, {
+        kind: "reply",
+        ms: 8000,
+        action: { label: "Show", run: () => list.open() },
+      });
+    }
+  }
+
+  /**
+   * Leaves for the thread's page. Same dev server: a plain navigation, and
+   * the thread reopens on arrival. Another one of the project's servers is
+   * another origin, so it opens through the bridge and nothing carries over.
+   */
+  function goTo(t: Thread): void {
+    if (t.port === store.port) {
+      rememberOpenThread(t.id);
+      location.assign(location.origin + t.path);
+      return;
+    }
+    window.open(`${bridge}/open?url=${encodeURIComponent(t.url)}`, "_self");
+  }
+
+  // Client-side routing moves the page without a load: redraw for the new one.
+  installHistoryHook();
+  let lastPage = pageKey();
+  const onNavigate = (): void => {
+    const now = pageKey();
+    if (now === lastPage) return;
+    lastPage = now;
+    composer.close();
+    if (threads.openId) threads.close();
+    pins.refind();
+    rerender();
+  };
+  window.addEventListener(NAVIGATE_EVENT, onNavigate, { signal });
+  window.addEventListener("popstate", onNavigate, { signal });
+  window.addEventListener("hashchange", onNavigate, { signal });
 
   function startSelect(): void {
     settings.close();
     threads.close();
+    list.close();
     selector.start();
   }
 
   function openThread(id: string): void {
     composer.close();
     settings.close();
+    list.close();
     threads.open(id);
   }
 
@@ -130,6 +232,7 @@ function mount(bridge: string): WidgetHandle {
     else if (settings.isOpen) settings.close();
     else if (composer.isOpen) composer.close();
     else if (threads.openId) threads.close();
+    else if (list.isOpen) list.close();
     else return false;
     return true;
   }
