@@ -52,7 +52,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   const wait = h("div", { className: "wait", hidden: true }, spinner(), h("div", {}, waitTitle, waitSub));
   const input = h("textarea", { attrs: { rows: "1", placeholder: "Reply…", "aria-label": "Reply" } });
   const sendBtn = h("button", { className: "sq", attrs: { type: "button", "aria-label": "Send reply" } }, icon("up", 16));
-  const reply = h("div", { className: "reply", hidden: true }, input, sendBtn);
+  const reply = h("div", { className: "reply" }, input, sendBtn);
   const note = h("div", { className: "note", attrs: { role: "status" } });
   const goBtn = h("button", { className: "gbtn", attrs: { type: "button" } }, "Go to page", icon("arrowRight", 13));
   const foot = h("div", { className: "foot", hidden: true }, goBtn);
@@ -103,8 +103,9 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       waitSub.textContent = w.sub;
       wait.classList.toggle("warn", w.warn);
     }
+    // The reply box stays while it waits: whatever is typed goes into the
+    // agent's own queue behind the comment it is still working on.
     wait.hidden = !t.waiting;
-    reply.hidden = t.waiting;
     foot.hidden = anchored;
     // A reply that arrives while it is on screen has been read.
     if (t.unread && !document.hidden) void markRead(t.id);
@@ -235,7 +236,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       pop.hidden = false;
       render();
       fitInput();
-      if (!t.waiting) input.focus();
+      input.focus();
     },
     close,
     refresh: () => {
