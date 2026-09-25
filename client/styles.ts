@@ -8,6 +8,7 @@
 export const STYLES = `
 :host {
   all: initial;
+  color-scheme: dark;
   --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --bg: #18181b; --line: #27272a; --line2: #3f3f46;
@@ -19,6 +20,8 @@ export const STYLES = `
 button { font: inherit; color: inherit; }
 .layer { font: 13px/1.45 var(--sans); color: var(--ink); }
 .mono { font-family: var(--mono); }
+.items, .msgs, textarea { scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+.items, .msgs { overscroll-behavior: contain; }
 
 /* Dock */
 .dock {
