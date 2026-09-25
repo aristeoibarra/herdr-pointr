@@ -94,6 +94,16 @@ const ICON_GEAR =
 const ICON_CLOSE =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
+interface WidgetHandle {
+  dispose(): void;
+}
+
+const HANDLE_KEY = "__pointrWidget";
+
+function isWidgetHandle(value: unknown): value is WidgetHandle {
+  return typeof value === "object" && value !== null && "dispose" in value && typeof value.dispose === "function";
+}
+
 (function initWidget(): void {
   const ROOT_ID = "pointr-root";
 
@@ -106,6 +116,15 @@ const ICON_CLOSE =
   installDiagnostics(BRIDGE_ORIGIN);
 
   if (document.getElementById(ROOT_ID)) return;
+
+  // A previous instance whose root was removed — Pointr.tsx unmounting under
+  // StrictMode or HMR, then loading the script again — still has its document
+  // and window listeners attached. Tear it down before mounting over it, or
+  // every keypress runs twice.
+  const previous: unknown = Reflect.get(window, HANDLE_KEY);
+  if (isWidgetHandle(previous)) previous.dispose();
+  const life = new AbortController();
+  const { signal } = life;
 
   const host = document.createElement("div");
   host.id = ROOT_ID;
@@ -1023,10 +1042,10 @@ const ICON_CLOSE =
   };
   shotElementBtn.addEventListener("click", setShotTarget("element"));
   shotViewportBtn.addEventListener("click", setShotTarget("viewport"));
-  document.addEventListener("mousemove", onMove, true);
-  document.addEventListener("click", onClick, true);
-  document.addEventListener("keydown", onKey, true);
-  window.addEventListener("scroll", () => focused && drawOverlay(focused), true);
+  document.addEventListener("mousemove", onMove, { capture: true, signal });
+  document.addEventListener("click", onClick, { capture: true, signal });
+  document.addEventListener("keydown", onKey, { capture: true, signal });
+  window.addEventListener("scroll", () => focused && drawOverlay(focused), { capture: true, signal });
 
   // A modal (Radix/vaul drawers, dialogs, popovers) watches the document for
   // presses and focus outside itself, and sees the widget's as exactly that:
@@ -1046,7 +1065,7 @@ const ICON_CLOSE =
     (e) => {
       if (isOwn(e.relatedTarget)) e.stopImmediatePropagation();
     },
-    true,
+    { capture: true, signal },
   );
   // While picking, a press is the pick, not an interaction: it must not
   // dismiss a modal or trigger a control that acts on pointerdown.
@@ -1059,9 +1078,18 @@ const ICON_CLOSE =
         e.preventDefault();
         e.stopImmediatePropagation();
       },
-      true,
+      { capture: true, signal },
     );
   }
+
+  const handle: WidgetHandle = {
+    dispose: () => {
+      life.abort();
+      closeStream();
+      host.remove();
+    },
+  };
+  Reflect.set(window, HANDLE_KEY, handle);
 
   fab.title = selectTitle();
   console.info(
