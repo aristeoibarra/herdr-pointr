@@ -5,7 +5,7 @@
  * coding agent that owns the project.
  */
 
-import { findAnchor } from "./anchor.ts";
+import { anchorFor, findAnchor } from "./anchor.ts";
 import { createApi, type Anchor, type Thread } from "./api.ts";
 import type { WidgetContext } from "./context.ts";
 import { installDiagnostics } from "./diagnostics.ts";
@@ -95,6 +95,7 @@ function mount(bridge: string): WidgetHandle {
       }
       toast.show(`Cancelled before ${agentName(t.agentKind)} saw it.`, { kind: "warn", ms: 6000 });
     },
+    repin,
   });
   const list = createThreadList(ctx, {
     store,
@@ -242,6 +243,22 @@ function mount(bridge: string): WidgetHandle {
     } catch {
       return false;
     }
+  }
+
+  /** The user picks the thread's element again: its first anchor becomes that one. */
+  function repin(t: Thread): void {
+    threads.close();
+    list.close();
+    selector.start({
+      hint: "Click the element this comment is about",
+      pick: (el) => {
+        void moveAnchor(t.id, 0, anchorFor(el)).then((ok) => {
+          if (!ok) toast.show(`Bridge not reachable at ${bridge}.`, { kind: "err" });
+          pins.refind();
+          openThread(t.id);
+        });
+      },
+    });
   }
 
   /** Esc closes the topmost thing the widget has open, one layer at a time. */

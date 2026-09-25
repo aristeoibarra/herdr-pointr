@@ -5,9 +5,17 @@ import { h } from "./dom.ts";
 import { inspectComponent } from "./frameworks/index.ts";
 import { outline } from "./ui/popover.ts";
 
+export interface PickFor {
+  /** What the hint asks for. */
+  hint: string;
+  /** Takes this one pick instead of opening a comment. */
+  pick(el: Element): void;
+}
+
 export interface Selector {
   readonly active: boolean;
-  start(): void;
+  /** Picks for a new comment, or once for `pickFor`. */
+  start(pickFor?: PickFor): void;
   cancel(): void;
 }
 
@@ -23,15 +31,18 @@ function describe(el: Element): string {
   return el.id ? `${tag}#${el.id}` : tag;
 }
 
+const COMMENT_HINT = "Click an element to comment on it";
+
 export function createSelector(ctx: WidgetContext, deps: SelectorDeps): Selector {
   let active = false;
+  let once: PickFor | null = null;
   const overlay = h("div", { className: "overlay" });
   const name = h("span");
   const size = h("span", { className: "sub" });
   const tag = h("div", { className: "tag" }, name, size);
   const cancel = h("button", { className: "gbtn", attrs: { type: "button" }, text: "Cancel" });
-  const hint = h("div", { className: "hint", attrs: { role: "status" }, hidden: true },
-    h("span", { text: "Click an element to comment on it" }), cancel);
+  const hintText = h("span", { text: COMMENT_HINT });
+  const hint = h("div", { className: "hint", attrs: { role: "status" }, hidden: true }, hintText, cancel);
   ctx.layer.append(overlay, tag, hint);
   cancel.addEventListener("click", () => stop());
 
@@ -54,6 +65,7 @@ export function createSelector(ctx: WidgetContext, deps: SelectorDeps): Selector
   function stop(): void {
     if (!active) return;
     active = false;
+    once = null;
     hint.hidden = true;
     draw(null);
     deps.onChange(false);
@@ -77,8 +89,10 @@ export function createSelector(ctx: WidgetContext, deps: SelectorDeps): Selector
       e.stopPropagation();
       const el = document.elementFromPoint(e.clientX, e.clientY);
       if (!el || ctx.isOwn(el)) return;
+      const pickFor = once;
       stop();
-      deps.onPick(el);
+      if (pickFor) pickFor.pick(el);
+      else deps.onPick(el);
     },
     { capture: true, signal: ctx.signal },
   );
@@ -104,7 +118,9 @@ export function createSelector(ctx: WidgetContext, deps: SelectorDeps): Selector
     get active() {
       return active;
     },
-    start() {
+    start(pickFor) {
+      once = pickFor ?? null;
+      hintText.textContent = pickFor?.hint ?? COMMENT_HINT;
       if (active) return;
       active = true;
       hint.hidden = false;

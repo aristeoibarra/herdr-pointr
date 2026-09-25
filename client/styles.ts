@@ -190,6 +190,7 @@ textarea::placeholder { color: var(--dim); }
   padding: 0; border: 0; border-radius: 8px; background: var(--ink); color: var(--sunk); cursor: pointer;
 }
 .foot { display: flex; align-items: center; gap: 8px; padding: 10px 12px 12px 14px; border-top: 1px solid var(--line); }
+.foot .lost { font-size: 12px; color: var(--muted); }
 
 /* Pins */
 .pins { position: fixed; inset: 0; z-index: 2147483646; pointer-events: none; }

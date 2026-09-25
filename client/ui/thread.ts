@@ -28,6 +28,8 @@ export interface ThreadDeps {
   goTo(thread: Thread): void;
   /** A comment the agent never saw was cancelled: hand it back for editing. */
   cancelled(thread: Thread, texts: string[]): void;
+  /** Pick the element this thread is about again. */
+  repin(thread: Thread): void;
 }
 
 /**
@@ -45,7 +47,8 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   const label = h("span", { className: "label" });
   const page = h("span", { className: "sub-label", hidden: true });
   const resolvedTag = h("span", { className: "sub-label", text: "resolved", hidden: true });
-  const resolveBtn = h("button", { className: "sbtn push", attrs: { type: "button" } });
+  const moveBtn = h("button", { className: "sbtn push", attrs: { type: "button", "aria-label": "Move pin to another element", title: "Move pin" } }, icon("target", 16));
+  const resolveBtn = h("button", { className: "sbtn", attrs: { type: "button" } });
   const closeBtn = h("button", { className: "sbtn", attrs: { type: "button", "aria-label": "Close" } }, icon("close", 14));
   const msgs = h("div", { className: "msgs" });
   const waitTitle = h("div", { className: "t" });
@@ -62,9 +65,12 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   const dest = createDestinationPicker(ctx, { api: deps.api, onChange: () => setNote("") });
   const destRow = h("div", { className: "dest-row", hidden: true }, dest.el);
   const goBtn = h("button", { className: "gbtn", attrs: { type: "button" } }, "Go to page", icon("arrowRight", 13));
-  const foot = h("div", { className: "foot", hidden: true }, goBtn);
+  // A thread of this page whose element could not be found, even by weighing.
+  const lostText = h("span", { className: "lost", text: "Its element isn't on the page right now." });
+  const repinBtn = h("button", { className: "gbtn push", attrs: { type: "button" } }, icon("target", 14), "Pin again");
+  const foot = h("div", { className: "foot", hidden: true }, goBtn, lostText, repinBtn);
   const pop = h("div", { className: "pop", attrs: { role: "dialog" }, hidden: true },
-    h("div", { className: "head ruled" }, label, page, resolvedTag, resolveBtn, closeBtn), msgs, wait, reply, destRow, note, foot);
+    h("div", { className: "head ruled" }, label, page, resolvedTag, moveBtn, resolveBtn, closeBtn), msgs, wait, reply, destRow, note, foot);
   ctx.layer.append(anchor, pop);
 
   function setNote(text: string, kind: "" | "err" | "warn" = ""): void {
@@ -119,7 +125,15 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
     // The reply box stays while it waits: whatever is typed goes into the
     // agent's own queue behind the comment it is still working on.
     wait.hidden = !t.waiting;
+    // Here and found: the pin can be moved. Here and not found: it can be
+    // pinned again. Another page: go there.
+    const here = deps.store.isHere(t);
+    moveBtn.hidden = !anchored || t.resolved;
+    resolveBtn.classList.toggle("push", moveBtn.hidden);
     foot.hidden = anchored;
+    goBtn.hidden = here;
+    lostText.hidden = !here;
+    repinBtn.hidden = !here || t.resolved;
     // A reply that arrives while it is on screen has been read.
     if (t.unread && !document.hidden) void markRead(t.id);
     reposition();
@@ -256,6 +270,12 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   cancelBtn.addEventListener("click", () => void cancelHeld());
   sendNowBtn.addEventListener("click", () => void sendNow());
   resolveBtn.addEventListener("click", () => void resolve());
+  const repin = (): void => {
+    const t = openId ? deps.store.get(openId) : undefined;
+    if (t) deps.repin(t);
+  };
+  moveBtn.addEventListener("click", repin);
+  repinBtn.addEventListener("click", repin);
   sendBtn.addEventListener("click", () => void sendReply());
   goBtn.addEventListener("click", () => {
     const t = openId ? deps.store.get(openId) : undefined;
