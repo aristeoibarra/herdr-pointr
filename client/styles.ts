@@ -167,7 +167,10 @@ textarea::placeholder { color: var(--dim); }
 .spin { flex-shrink: 0; margin-top: 1px; animation: pointr-spin .9s linear infinite; }
 @keyframes pointr-spin { to { transform: rotate(360deg); } }
 .reply { display: flex; align-items: flex-end; gap: 8px; padding: 10px 10px 10px 14px; border-top: 1px solid var(--line); }
-.reply textarea { height: 34px; min-height: 34px; max-height: 120px; padding: 7px 10px; border-radius: 8px; }
+.reply textarea {
+  height: 34px; min-height: 34px; max-height: 120px; padding: 7px 10px; border-radius: 8px;
+  line-height: 18px; overflow-y: hidden;
+}
 .sq {
   width: 34px; height: 34px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
   padding: 0; border: 0; border-radius: 8px; background: var(--ink); color: var(--sunk); cursor: pointer;

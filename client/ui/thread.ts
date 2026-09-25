@@ -148,6 +148,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
         return;
       }
       input.value = "";
+      fitInput();
       saveDraft(openId, "");
       if (res.rerouted) setNote("That terminal was closed — sent to another agent with the whole thread.", "warn");
       if (res.thread) deps.store.upsert(res.thread);
@@ -193,10 +194,20 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       void sendReply();
     }
   });
+  /**
+   * Grows with its text up to 120px. No scrollbar until then: at one line the
+   * browser would otherwise draw one for the fraction of a pixel it rounds.
+   */
+  function fitInput(): void {
+    input.style.height = "34px";
+    const wanted = input.scrollHeight + 2;
+    input.style.height = `${Math.min(120, wanted)}px`;
+    input.style.overflowY = wanted > 120 ? "auto" : "hidden";
+  }
+
   let draftTimer = 0;
   input.addEventListener("input", () => {
-    input.style.height = "34px";
-    input.style.height = `${Math.min(120, input.scrollHeight + 2)}px`;
+    fitInput();
     window.clearTimeout(draftTimer);
     const id = openId;
     if (id) draftTimer = window.setTimeout(() => saveDraft(id, input.value), 300);
@@ -223,6 +234,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       anchored = t.port === deps.store.port && t.path === pageKey() && targetFor(t) !== null;
       pop.hidden = false;
       render();
+      fitInput();
       if (!t.waiting) input.focus();
     },
     close,
