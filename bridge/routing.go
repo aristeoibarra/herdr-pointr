@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -283,21 +284,77 @@ func resolveTarget(input RoutingInput) Resolution {
 	return done(Resolution{Kind: "none", Candidates: agents})
 }
 
-// routeByPort is the port → cwd → agent step. stop is true when it settled
-// the answer, resolved or ambiguous.
-func routeByPort(port string, agents []Agent, trace *[]string) (Resolution, bool) {
+// portEvidence is the evidence half of the port step: every directory behind
+// the port and the ones that name a project. Routing and thread storage both
+// read a page's project off it, so the two cannot disagree about it.
+func portEvidence(port string) (dirs, informative []string) {
 	// Second line of defence behind upstreamURL: a port the bridge serves
 	// itself is never evidence of which project a page belongs to.
-	dirs := cwdsForPort(port, os.Getpid())
-	if len(dirs) == 0 {
-		*trace = append(*trace, fmt.Sprintf("port %s: nothing listening, or its cwd is unreadable", port))
-		return Resolution{}, false
-	}
-	var informative []string
+	dirs = cwdsForPort(port, os.Getpid())
 	for _, dir := range dirs {
 		if isInformativeProjectDir(dir) {
 			informative = append(informative, dir)
 		}
+	}
+	return dirs, informative
+}
+
+// projectDir picks one of several directories that each name a project, and
+// always the same one, so a page's threads do not hop between files. Routing
+// still matches against all of them; this is only for keys and labels.
+func projectDir(informative []string) string {
+	if len(informative) == 0 {
+		return ""
+	}
+	sorted := append([]string(nil), informative...)
+	sort.Strings(sorted)
+	return normalize(sorted[0])
+}
+
+// projectKeyFor names the project a page's threads belong to. upstream must
+// already be translated off pointr's proxy ports. The dev server's directory
+// wins, then the configured project, then the origin itself — for servers
+// whose cwd says nothing, like Docker's proxy or a server started in $HOME.
+//
+// The agent's directory is deliberately not a fallback: the agent routing
+// picks changes as panes open and close, and threads keyed on it would drop
+// off the page without any error.
+func projectKeyFor(upstream string, informativeFor func(port string) []string, projectPath string) string {
+	if port := portOf(upstream); port != "" {
+		if dir := projectDir(informativeFor(port)); dir != "" {
+			return dir
+		}
+	}
+	if projectPath != "" {
+		return normalize(projectPath)
+	}
+	return originKey(upstream)
+}
+
+// originKey is the last-resort project key: host and port, with the loopback
+// spellings folded together so localhost and 127.0.0.1 share threads.
+func originKey(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "unknown"
+	}
+	host := u.Hostname()
+	if host == "127.0.0.1" || host == "::1" {
+		host = "localhost"
+	}
+	if port := portOf(raw); port != "" {
+		return host + ":" + port
+	}
+	return host
+}
+
+// routeByPort is the port → cwd → agent step. stop is true when it settled
+// the answer, resolved or ambiguous.
+func routeByPort(port string, agents []Agent, trace *[]string) (Resolution, bool) {
+	dirs, informative := portEvidence(port)
+	if len(dirs) == 0 {
+		*trace = append(*trace, fmt.Sprintf("port %s: nothing listening, or its cwd is unreadable", port))
+		return Resolution{}, false
 	}
 	if len(informative) == 0 {
 		*trace = append(*trace, fmt.Sprintf("port %s: %s says nothing about which project this is", port, strings.Join(dirs, ", ")))

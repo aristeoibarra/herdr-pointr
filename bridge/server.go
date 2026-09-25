@@ -255,23 +255,22 @@ func (s *Server) routingInput(live []Agent, pageURL string, override *AgentPin) 
 // the routing's own evidence test, so the list shows exactly what routing
 // could attribute to a project; the bridge's own ports are left out.
 func (s *Server) devServers(live []Agent) []DevServer {
-	byPort := map[int]DevServer{}
+	byPort := map[int][]string{}
 	self := os.Getpid()
 	for _, entry := range listeningPorts() {
-		if entry.Pid == self || entry.Cwd == "" || s.proxies.owns(entry.Port) {
+		if entry.Pid == self || entry.Cwd == "" || s.proxies.owns(entry.Port) || !isInformativeProjectDir(entry.Cwd) {
 			continue
 		}
-		if _, seen := byPort[entry.Port]; seen || !isInformativeProjectDir(entry.Cwd) {
-			continue
-		}
-		byPort[entry.Port] = DevServer{
-			Port: entry.Port, Project: project(entry.Cwd), Cwd: entry.Cwd,
-			Agents: entriesAmong(matchAgents(entry.Cwd, live, isInformativeProjectDir), live),
-		}
+		byPort[entry.Port] = append(byPort[entry.Port], entry.Cwd)
 	}
 	servers := make([]DevServer, 0, len(byPort))
-	for _, server := range byPort {
-		servers = append(servers, server)
+	for port, dirs := range byPort {
+		// The same pick the thread store keys on, so the page and the list agree.
+		cwd := projectDir(dirs)
+		servers = append(servers, DevServer{
+			Port: port, Project: project(cwd), Cwd: cwd,
+			Agents: entriesAmong(matchAgents(cwd, live, isInformativeProjectDir), live),
+		})
 	}
 	sort.Slice(servers, func(i, j int) bool { return servers[i].Port < servers[j].Port })
 	return servers
