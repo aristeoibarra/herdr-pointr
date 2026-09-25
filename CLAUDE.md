@@ -297,15 +297,16 @@ wrappers because Next renames them across versions; extend the pattern rather th
 
 ## Settings live in the widget
 
-The destination is the chip on a comment: a native `<select>` dressed as one (`ui/destination.ts`),
-so choosing an agent is one click and the list is the browser's. It warns before sending when
-`/resolve` reports more than one candidate, and a thread shows the same picker only when a reply
-comes back 409. The selection shortcut and the screenshot framing are behind the gear in the
-comment list, which turns that panel into the settings — no popover of its own. The dock's bubble
-toggles the pins. All of it lives in the page's `localStorage` (`pointr-prefs`), written on every
-change. Send-on-click is gone:
-every comment is submitted, since the thread is where it gets reviewed. Whether a comment carries a
-screenshot is chosen per comment and not remembered — an image in every comment costs context.
+The destination is the chip on a comment (`ui/destination.ts`): one click opens the widget's own
+list — Auto with where it would route, then each agent with its pane title and live status. Not a
+native `<select>`: that opens in the system's colours, with no room for either. It warns before
+sending when `/resolve` reports more than one candidate, listing those first, and a thread shows
+the same picker only when a reply comes back 409. The selection shortcut and the screenshot
+framing are behind the gear in the comment list, which turns that panel into the settings — no
+popover of its own. The dock's bubble toggles the pins. All of it lives in the page's
+`localStorage` (`pointr-prefs`), written on every change. Send-on-click is gone: every comment is
+submitted, since the thread is where it gets reviewed. Whether a comment carries a screenshot is
+chosen per comment and not remembered — an image in every comment costs context.
 
 - `localStorage` is per origin, and origin includes the port, so every setting
   is per app — including the shortcut. A destination chosen for one app not
