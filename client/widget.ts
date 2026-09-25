@@ -63,16 +63,9 @@ function mount(bridge: string): WidgetHandle {
   const api = createApi(bridge);
   const store = createStore();
   const toast = createToaster(ctx);
-  const settings = createSettings(ctx, {
-    api,
-    onChange: () => {
-      dock.refreshTitle();
-      composer.refreshDestination();
-    },
-  });
+  const settings = createSettings(ctx, { onChange: () => dock.refreshTitle() });
   const composer = createComposer(ctx, {
     api,
-    settings,
     pickAnother: () => selector.start(),
     onSent: (thread, project, notes) => {
       if (notes.length > 0) toast.show(`Sent to ${project || "the agent"} (${notes.join("; ")}).`, { kind: "warn" });
@@ -86,7 +79,6 @@ function mount(bridge: string): WidgetHandle {
   const threads = createThreadView(ctx, {
     api,
     store,
-    settings,
     elementFor: (id) => pins.elementFor(id),
     changed: () => poller.kick(),
     goTo,
@@ -103,8 +95,8 @@ function mount(bridge: string): WidgetHandle {
   });
   const list = createThreadList(ctx, {
     store,
+    settings,
     openThread: (id) => openThread(id),
-    openSettings: (anchor) => settings.open(anchor),
     onToggle: (open) => dock.setListOpen(open),
   });
   let firstLoad = true;
@@ -140,7 +132,6 @@ function mount(bridge: string): WidgetHandle {
       }
       composer.close();
       threads.close();
-      settings.close();
       list.open();
     },
   });
@@ -227,7 +218,6 @@ function mount(bridge: string): WidgetHandle {
   window.addEventListener("hashchange", onNavigate, { signal });
 
   function startSelect(): void {
-    settings.close();
     threads.close();
     list.close();
     selector.start();
@@ -235,7 +225,6 @@ function mount(bridge: string): WidgetHandle {
 
   function openThread(id: string): void {
     composer.close();
-    settings.close();
     list.close();
     threads.open(id);
   }
@@ -243,7 +232,6 @@ function mount(bridge: string): WidgetHandle {
   /** Esc closes the topmost thing the widget has open, one layer at a time. */
   function closeTopmost(): boolean {
     if (selector.active) selector.cancel();
-    else if (settings.isOpen) settings.close();
     else if (composer.isOpen) composer.close();
     else if (threads.openId) threads.close();
     else if (list.isOpen) list.close();

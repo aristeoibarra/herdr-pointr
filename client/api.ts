@@ -117,6 +117,8 @@ export interface Destination {
   ok: boolean;
   project: string;
   kind: string;
+  /** More than one agent could own the page: routing will not choose. */
+  candidates: AgentEntry[];
 }
 
 type Json = Record<string, unknown>;
@@ -320,7 +322,12 @@ export function createApi(bridge: string): Api {
     async destination(url) {
       const data = await call(`/resolve?url=${encodeURIComponent(url)}`);
       const agent = data["agent"];
-      return { ok: bool(data, "ok"), project: str(data, "project"), kind: isJson(agent) ? str(agent, "kind") : "" };
+      return {
+        ok: bool(data, "ok"),
+        project: str(data, "project"),
+        kind: isJson(agent) ? str(agent, "kind") : "",
+        candidates: list(data, "candidates").map(readAgentEntry).filter(present),
+      };
     },
   };
 }

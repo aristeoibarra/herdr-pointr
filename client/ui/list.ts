@@ -5,6 +5,7 @@ import { h, icon } from "../dom.ts";
 import { agentName, ago, isHeld, threadLabel } from "../status-text.ts";
 import type { Store } from "../store.ts";
 import { place } from "./popover.ts";
+import type { SettingsPanel } from "./settings.ts";
 
 export interface ThreadList {
   readonly isOpen: boolean;
@@ -15,8 +16,8 @@ export interface ThreadList {
 
 export interface ListDeps {
   store: Store;
+  settings: SettingsPanel;
   openThread(id: string): void;
-  openSettings(anchor: DOMRect): void;
   onToggle(open: boolean): void;
 }
 
@@ -33,19 +34,22 @@ interface Group {
 /**
  * Every thread of the project in one place — open or resolved, grouped by
  * page, this page first. Another page's thread opens where you are, with a
- * way to go there.
+ * way to go there. The gear turns the same panel into the settings.
  */
 export function createThreadList(ctx: WidgetContext, deps: ListDeps): ThreadList {
   let tab: Tab = "open";
+  let showSettings = false;
+  const title = h("span", { className: "title big", text: "Comments" });
+  const back = h("button", { className: "sbtn", attrs: { type: "button", "aria-label": "Back to comments" }, hidden: true }, icon("back", 16));
   const openTab = h("button", { attrs: { type: "button", role: "tab" } });
   const resolvedTab = h("button", { attrs: { type: "button", role: "tab" } });
   const gear = h("button", { className: "sbtn push", attrs: { type: "button", "aria-label": "Settings", title: "Settings" } }, icon("gear", 16));
   const closeBtn = h("button", { className: "sbtn", attrs: { type: "button", "aria-label": "Close" } }, icon("close", 14));
   const items = h("div", { className: "items" });
+  const tabs = h("div", { className: "tabs" }, h("div", { className: "seg", attrs: { role: "tablist", "aria-label": "Filter" } }, openTab, resolvedTab));
   const pop = h("div", { className: "pop wide", attrs: { role: "dialog", "aria-label": "Comments" }, hidden: true },
-    h("div", { className: "head" }, h("span", { className: "title big", text: "Comments" }), gear, closeBtn),
-    h("div", { className: "tabs" }, h("div", { className: "seg", attrs: { role: "tablist", "aria-label": "Filter" } }, openTab, resolvedTab)),
-    items);
+    h("div", { className: "head" }, back, title, gear, closeBtn),
+    tabs, items, deps.settings.el);
   ctx.layer.append(pop);
 
   function status(t: Thread, here: boolean, onPage: boolean): string {
@@ -106,6 +110,17 @@ export function createThreadList(ctx: WidgetContext, deps: ListDeps): ThreadList
   }
 
   function render(): void {
+    title.textContent = showSettings ? "Settings" : "Comments";
+    back.hidden = !showSettings;
+    gear.hidden = showSettings;
+    closeBtn.classList.toggle("push", showSettings);
+    tabs.hidden = showSettings;
+    items.hidden = showSettings;
+    deps.settings.el.hidden = !showSettings;
+    if (showSettings) {
+      place(pop, null);
+      return;
+    }
     const all = deps.store.threads;
     const open = all.filter((t) => !t.resolved);
     const resolved = all.filter((t) => t.resolved);
@@ -136,7 +151,15 @@ export function createThreadList(ctx: WidgetContext, deps: ListDeps): ThreadList
   function close(): void {
     if (pop.hidden) return;
     pop.hidden = true;
+    // A shortcut half-recorded would keep eating keystrokes.
+    deps.settings.reset();
     deps.onToggle(false);
+  }
+
+  function setView(settings: boolean): void {
+    showSettings = settings;
+    deps.settings.reset();
+    render();
   }
 
   openTab.addEventListener("click", () => {
@@ -147,7 +170,8 @@ export function createThreadList(ctx: WidgetContext, deps: ListDeps): ThreadList
     tab = "resolved";
     render();
   });
-  gear.addEventListener("click", () => deps.openSettings(pop.getBoundingClientRect()));
+  gear.addEventListener("click", () => setView(true));
+  back.addEventListener("click", () => setView(false));
   closeBtn.addEventListener("click", () => close());
 
   return {
@@ -156,7 +180,7 @@ export function createThreadList(ctx: WidgetContext, deps: ListDeps): ThreadList
     },
     open() {
       pop.hidden = false;
-      render();
+      setView(false);
       deps.onToggle(true);
     },
     close,

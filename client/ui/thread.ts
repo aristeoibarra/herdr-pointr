@@ -1,12 +1,12 @@
-import type { Api, Thread } from "../api.ts";
+import type { AgentEntry, Api, Thread } from "../api.ts";
 import { findThreadTarget } from "../anchor.ts";
 import type { WidgetContext } from "../context.ts";
 import { h, icon, spinner } from "../dom.ts";
 import { readDraft, rememberOpenThread, saveDraft } from "../session.ts";
 import { agentName, ago, isHeld, threadLabel, waitingText } from "../status-text.ts";
 import type { Store } from "../store.ts";
+import { createDestinationPicker } from "./destination.ts";
 import { outline, place } from "./popover.ts";
-import type { Settings } from "./settings.ts";
 
 export interface ThreadView {
   readonly openId: string | null;
@@ -21,7 +21,6 @@ export interface ThreadView {
 export interface ThreadDeps {
   api: Api;
   store: Store;
-  settings: Settings;
   /** The thread's element, when it is on this page. */
   elementFor(id: string): Element | null;
   /** Something changed on the bridge's side: fetch the project again. */
@@ -59,10 +58,13 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
   const sendBtn = h("button", { className: "sq", attrs: { type: "button", "aria-label": "Send reply" } }, icon("up", 16));
   const reply = h("div", { className: "reply" }, input, sendBtn);
   const note = h("div", { className: "note", attrs: { role: "status" } });
+  // Only when routing could not choose for a thread whose terminal is gone.
+  const dest = createDestinationPicker(ctx, { api: deps.api, onChange: () => setNote("") });
+  const destRow = h("div", { className: "dest-row", hidden: true }, dest.el);
   const goBtn = h("button", { className: "gbtn", attrs: { type: "button" } }, "Go to page", icon("arrowRight", 13));
   const foot = h("div", { className: "foot", hidden: true }, goBtn);
   const pop = h("div", { className: "pop", attrs: { role: "dialog" }, hidden: true },
-    h("div", { className: "head ruled" }, label, page, resolvedTag, resolveBtn, closeBtn), msgs, wait, reply, note, foot);
+    h("div", { className: "head ruled" }, label, page, resolvedTag, resolveBtn, closeBtn), msgs, wait, reply, destRow, note, foot);
   ctx.layer.append(anchor, pop);
 
   function setNote(text: string, kind: "" | "err" | "warn" = ""): void {
@@ -156,7 +158,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       const res = await deps.api.message(openId, text, ctx.prefs.targetAgent);
       if (!res.ok) {
         setNote(res.error, res.reason === "agent_blocked" ? "warn" : "err");
-        if (res.candidates.length > 0) deps.settings.open(pop.getBoundingClientRect(), res.candidates);
+        if (res.candidates.length > 0) await chooseAgent(res.candidates);
         return;
       }
       input.value = "";
@@ -171,6 +173,13 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       sending = false;
       sendBtn.disabled = false;
     }
+  }
+
+  async function chooseAgent(candidates: AgentEntry[]): Promise<void> {
+    destRow.hidden = false;
+    setNote(await dest.refresh(candidates), "warn");
+    reposition();
+    dest.prompt();
   }
 
   async function resolve(): Promise<void> {
@@ -222,7 +231,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       const res = await deps.api.deliver(t.id, ctx.prefs.targetAgent);
       if (!res.ok) {
         setNote(res.error, res.reason === "agent_blocked" || res.reason === "not_held" ? "warn" : "err");
-        if (res.candidates.length > 0) deps.settings.open(pop.getBoundingClientRect(), res.candidates);
+        if (res.candidates.length > 0) await chooseAgent(res.candidates);
         return;
       }
       if (res.rerouted) setNote("That terminal was closed — sent to another agent with the whole thread.", "warn");
@@ -287,6 +296,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
       if (openId !== id) {
         input.value = readDraft(id);
         setNote("");
+        destRow.hidden = true;
       }
       openId = id;
       // Kept for the tab: a reload — often the agent's own edit landing —

@@ -8,8 +8,8 @@ import { pageKey } from "../navigation.ts";
 import { saveComposeDraft, takeComposeDraft } from "../session.ts";
 import { loadDomToPng } from "../shot-loader.ts";
 import { MAX_SHOT_CHARS, SEND_TIMEOUT_MS, SHOT_TIMEOUT_MS, TimeoutError, captureElement, captureViewport, withTimeout } from "../shot.ts";
+import { createDestinationPicker } from "./destination.ts";
 import { outline, place } from "./popover.ts";
-import type { Settings } from "./settings.ts";
 
 interface Item {
   element: Element;
@@ -22,7 +22,6 @@ export interface Composer {
   add(el: Element): void;
   close(): void;
   reposition(): void;
-  refreshDestination(): void;
   /**
    * Brings back a comment that was being written when the page reloaded —
    * often the agent's edit for another thread. True when this page has one,
@@ -35,7 +34,6 @@ export interface Composer {
 
 export interface ComposerDeps {
   api: Api;
-  settings: Settings;
   /** "+ Add": pick another element for the same comment. */
   pickAnother(): void;
   onSent(thread: Thread | null, project: string, notes: string[]): void;
@@ -71,9 +69,8 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
   let sending = false;
 
   const marks = h("div");
-  const destText = h("span");
-  const dest = h("button", { className: "dest push", attrs: { type: "button", title: "Change destination" } },
-    h("span", { className: "led" }), destText, icon("chevron", 12));
+  const dest = createDestinationPicker(ctx, { api: deps.api, onChange: () => setNote("") });
+  dest.el.classList.add("push");
   const closeBtn = h("button", { className: "sbtn", attrs: { type: "button", "aria-label": "Close" } }, icon("close", 14));
   const chips = h("div", { className: "chips" });
   const textarea = h("textarea", { attrs: { rows: "3", placeholder: "Ask or request a change…", "aria-label": "Comment" } });
@@ -81,7 +78,7 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
   const sendBtn = h("button", { className: "pbtn push", attrs: { type: "button" } }, "Send", h("span", { className: "kbd", text: "Ctrl ↵" }));
   const note = h("div", { className: "note", attrs: { role: "status" } });
   const pop = h("div", { className: "pop", attrs: { role: "dialog", "aria-label": "New comment" }, hidden: true },
-    h("div", { className: "head" }, h("span", { className: "title", text: "Comment" }), dest, closeBtn),
+    h("div", { className: "head" }, h("span", { className: "title", text: "Comment" }), dest.el, closeBtn),
     chips,
     h("div", { className: "pad" }, textarea),
     h("div", { className: "row" }, shotBtn, sendBtn),
@@ -167,21 +164,9 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
   }
 
   async function refreshDestination(): Promise<void> {
-    const pinned = ctx.prefs.targetAgent;
-    dest.classList.remove("warn");
-    if (pinned) {
-      destText.textContent = `${ctx.prefs.targetAgentLabel ?? pinned.paneId} · pinned`;
-      return;
-    }
-    destText.textContent = "resolving…";
-    try {
-      const d = await deps.api.destination(location.href);
-      destText.textContent = d.ok ? [d.project, d.kind].filter(Boolean).join(" · ") : "no agent for this page";
-      dest.classList.toggle("warn", !d.ok);
-    } catch {
-      destText.textContent = "bridge offline";
-      dest.classList.add("warn");
-    }
+    const line = await dest.refresh();
+    if (line) setNote(line, "warn");
+    reposition();
   }
 
   async function screenshotFor(targets: Element[]): Promise<{ data: string | null; note: string }> {
@@ -234,7 +219,10 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
         // A blocked agent is something to clear and retry, so it reads as a
         // warning — and the comment keeps its text either way.
         setNote(res.error, res.reason === "agent_blocked" ? "warn" : "err");
-        if (res.candidates.length > 0) deps.settings.open(pop.getBoundingClientRect(), res.candidates);
+        if (res.candidates.length > 0) {
+          setNote(await dest.refresh(res.candidates), "warn");
+          dest.prompt();
+        }
         return;
       }
       if (res.stale === "pane_closed") {
@@ -285,7 +273,6 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
   closeBtn.addEventListener("click", () => close());
   sendBtn.addEventListener("click", () => void send());
   shotBtn.addEventListener("click", () => setShot(!shot));
-  dest.addEventListener("click", () => deps.settings.open(pop.getBoundingClientRect()));
   let persistTimer = 0;
   textarea.addEventListener("input", () => {
     window.clearTimeout(persistTimer);
@@ -317,7 +304,6 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
     },
     close,
     reposition,
-    refreshDestination: () => void refreshDestination(),
     edit(elements, text) {
       reopen(elements, text);
     },
