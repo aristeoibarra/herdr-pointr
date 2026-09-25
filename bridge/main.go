@@ -85,6 +85,7 @@ func serve(cfg Config, args []string) {
 	}
 
 	bridge := newServer(cfg)
+	go bridge.deliveryLoop()
 	// No write timeout: /status is a long-lived event stream.
 	server := &http.Server{Handler: bridge, ReadHeaderTimeout: 10 * time.Second}
 	for _, l := range listeners {

@@ -56,3 +56,42 @@ func TestReplyCommand(t *testing.T) {
 		}
 	})
 }
+
+// A comment held for a busy agent exists nowhere but here. Lost on a
+// restart, it is simply never delivered, and nothing says so.
+func TestHeldComments(t *testing.T) {
+	dir := t.TempDir()
+	st := newThreadStore(dir)
+	held := st.reserve("/home/u/dev/shop", Thread{Pane: "w1:p1", Messages: []Message{{From: "user", Text: "Make it grey."}}})
+	st.holdFirst(held.ID, "the full prompt")
+	if _, err := st.commit(held.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("survives a restart, still waiting for its agent", func(t *testing.T) {
+		again := newThreadStore(dir)
+		refs := again.held()
+		if len(refs) != 1 || refs[0].ID != held.ID || refs[0].Pane != "w1:p1" {
+			t.Fatalf("held after reload: %+v", refs)
+		}
+		thread, _, _ := again.find(held.ID)
+		if thread.Messages[0].Prompt != "the full prompt" {
+			t.Fatal("the prompt to type was not kept")
+		}
+	})
+	t.Run("never shows the prompt to the widget", func(t *testing.T) {
+		thread, _, _ := st.find(held.ID)
+		if view(thread).Messages[0].Prompt != "" {
+			t.Fatal("the prompt leaked into the view")
+		}
+	})
+	t.Run("cancelling a comment the agent never saw removes its thread", func(t *testing.T) {
+		_, deleted, texts, err := st.cancelHeld(held.ID)
+		if err != nil || !deleted || len(texts) != 1 || texts[0] != "Make it grey." {
+			t.Fatalf("deleted=%v texts=%v err=%v", deleted, texts, err)
+		}
+		if _, _, err := newThreadStore(dir).find(held.ID); err == nil {
+			t.Fatal("a cancelled thread came back after a restart")
+		}
+	})
+}

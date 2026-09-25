@@ -180,22 +180,32 @@ func formatPrompt(payload SendPayload, pageURL, screenshotPath, threadID, replyC
 	return strings.Join(lines, "\n")
 }
 
-// formatFollowUp renders a reply the user wrote inside a thread. The whole
-// thread goes along every time, capped, rather than only the new message:
-// the pane may have restarted, or the thread moved to another agent, and
-// neither would remember the start of the conversation.
-func formatFollowUp(t Thread, cmd string) string {
+// formatFollowUp renders replies the user wrote inside a thread — fresh, one
+// or several held while the agent was busy. The whole thread goes along
+// every time, capped, rather than only the new messages: the pane may have
+// restarted, or the thread moved to another agent, and neither would
+// remember the start of the conversation.
+func formatFollowUp(t Thread, fresh []Message, cmd string) string {
 	lines := []string{"[pointr] Follow-up · thread " + t.ID, "Page: " + t.URL}
 	if about := describeAnchors(t.Anchors); about != "" {
 		lines = append(lines, "About: "+about)
 	}
-	if len(t.Messages) == 0 {
-		return strings.Join(append(lines, replyInstructions(cmd)...), "\n")
+	isFresh := map[string]bool{}
+	for _, m := range fresh {
+		isFresh[m.ID] = true
 	}
-	earlier, latest := t.Messages[:len(t.Messages)-1], t.Messages[len(t.Messages)-1]
+	var earlier []Message
+	for _, m := range t.Messages {
+		if !isFresh[m.ID] {
+			earlier = append(earlier, m)
+		}
+	}
 	lines = append(lines, "", "Thread so far, oldest first:")
 	lines = append(lines, historyLines(earlier, 4000)...)
-	lines = append(lines, "", "New from the user:", latest.Text)
+	lines = append(lines, "", "New from the user:")
+	for _, m := range fresh {
+		lines = append(lines, m.Text)
+	}
 	return strings.Join(append(lines, replyInstructions(cmd)...), "\n")
 }
 

@@ -33,7 +33,10 @@ const (
 	resolvedRetention    = 30 * 24 * time.Hour
 )
 
-var errUnknownThread = errors.New("unknown thread")
+var (
+	errUnknownThread = errors.New("unknown thread")
+	errNotHeld       = errors.New("nothing held")
+)
 
 // Anchor is what the widget needs to find an element again on a later load.
 // Trimmed on purpose: the prompt already carried the full capture, and a
@@ -63,6 +66,12 @@ type Message struct {
 	// User messages only: the agent was mid-turn when this was prompted, so
 	// it went into the agent's own input queue.
 	BusyAtSend bool `json:"busyAtSend,omitempty"`
+	// Sent while the agent was busy and kept here until it is free, so it
+	// can still be cancelled. Prompt is what gets typed then, for a thread's
+	// first message; a held follow-up is written at delivery, when the
+	// thread so far is known. Prompt never leaves the bridge.
+	Held   bool   `json:"held,omitempty"`
+	Prompt string `json:"prompt,omitempty"`
 }
 
 type Thread struct {
@@ -466,6 +475,101 @@ func (st *ThreadStore) pruneLocked(pf *projectFile) {
 	}
 	pf.Threads = pf.Threads[excess:]
 	sort.SliceStable(pf.Threads, func(i, j int) bool { return pf.Threads[i].CreatedAt < pf.Threads[j].CreatedAt })
+}
+
+// holdFirst marks a reserved thread's first message as held, with the
+// prompt to type once its agent is free.
+func (st *ThreadStore) holdFirst(id, prompt string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if t, _ := st.threadLocked(id); t != nil && len(t.Messages) > 0 {
+		t.Messages[0].Held, t.Messages[0].Prompt = true, prompt
+	}
+}
+
+// heldRef is a thread with messages waiting for its agent to be free.
+type heldRef struct {
+	ID   string
+	Pane string
+	At   int64
+}
+
+// held lists the threads with held messages, the longest-waiting first.
+func (st *ThreadStore) held() []heldRef {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	var refs []heldRef
+	for _, pf := range st.projects {
+		for _, t := range pf.Threads {
+			if t.pending || t.ResolvedAt != 0 {
+				continue
+			}
+			for _, m := range t.Messages {
+				if m.Held {
+					refs = append(refs, heldRef{ID: t.ID, Pane: t.Pane, At: m.At})
+					break
+				}
+			}
+		}
+	}
+	sort.Slice(refs, func(i, j int) bool { return refs[i].At < refs[j].At })
+	return refs
+}
+
+// markDelivered clears the held messages that were just typed into pane.
+func (st *ThreadStore) markDelivered(id string, messageIDs []string, pane, kind string) (Thread, error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	t, pf := st.threadLocked(id)
+	if t == nil {
+		return Thread{}, errUnknownThread
+	}
+	delivered := map[string]bool{}
+	for _, mid := range messageIDs {
+		delivered[mid] = true
+	}
+	for i := range t.Messages {
+		if delivered[t.Messages[i].ID] {
+			t.Messages[i].Held, t.Messages[i].Prompt = false, ""
+		}
+	}
+	t.Pane, t.AgentKind = pane, kind
+	pf.Rev++
+	st.persistLocked(pf)
+	return t.clone(), nil
+}
+
+// cancelHeld takes back what has not reached the agent yet. A thread whose
+// first message never did is removed entirely: nothing of it exists outside
+// the bridge.
+func (st *ThreadStore) cancelHeld(id string) (t Thread, deleted bool, texts []string, err error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	thread, pf := st.threadLocked(id)
+	if thread == nil {
+		return Thread{}, false, nil, errUnknownThread
+	}
+	kept := thread.Messages[:0]
+	for _, m := range thread.Messages {
+		if m.Held {
+			texts = append(texts, m.Text)
+			continue
+		}
+		kept = append(kept, m)
+	}
+	if len(texts) == 0 {
+		return thread.clone(), false, nil, errNotHeld
+	}
+	thread.Messages = kept
+	pf.Rev++
+	if len(kept) == 0 {
+		st.removeLocked(pf, id)
+		st.persistLocked(pf)
+		return Thread{ID: id}, true, texts, nil
+	}
+	thread.UpdatedAt = nowMs()
+	st.persistLocked(pf)
+	return thread.clone(), false, texts, nil
 }
 
 // clipRunes caps text without touching its whitespace — unlike truncate,

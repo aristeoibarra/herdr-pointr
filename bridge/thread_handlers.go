@@ -33,12 +33,15 @@ type ThreadView struct {
 }
 
 func view(t Thread) ThreadView {
-	anchors, messages := t.Anchors, t.Messages
+	anchors := t.Anchors
 	if anchors == nil {
 		anchors = []Anchor{}
 	}
-	if messages == nil {
-		messages = []Message{}
+	// A held message's prompt stays in the bridge: it is the full capture.
+	messages := make([]Message, 0, len(t.Messages))
+	for _, m := range t.Messages {
+		m.Prompt = ""
+		messages = append(messages, m)
 	}
 	return ThreadView{
 		ID: t.ID, URL: t.URL, Port: t.Port, Path: t.Path, Anchors: anchors, Pane: t.Pane,
@@ -207,7 +210,8 @@ func (s *Server) handleThreadMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agent := res.Agent
-	message := Message{ID: randomID("m_", 4), From: "user", Text: text, BusyAtSend: agent.Status == "working"}
+	hold := busy(agent.Status)
+	message := Message{ID: randomID("m_", 4), From: "user", Text: text, BusyAtSend: agent.Status == "working", Held: hold}
 	t, err := s.threads.appendMessage(body.ID, message, func(t *Thread) {
 		t.Pane, t.AgentKind = agent.PaneID, agent.Kind
 		t.ResolvedAt = 0
@@ -217,7 +221,12 @@ func (s *Server) handleThreadMessage(w http.ResponseWriter, r *http.Request) {
 		unknownThread(w, body.ID)
 		return
 	}
-	if _, err := promptAgent(agent.PaneID, formatFollowUp(t, replyCommand(s.exe, s.cfg.Port, t.ID))); err != nil {
+	if hold {
+		// Delivered once the agent is free; until then it can be taken back.
+		sendJSON(w, 200, map[string]any{"ok": true, "thread": view(t), "rerouted": rerouted, "held": true, "project": project(agent.Cwd)})
+		return
+	}
+	if _, err := promptAgent(agent.PaneID, formatFollowUp(t, []Message{message}, replyCommand(s.exe, s.cfg.Port, t.ID))); err != nil {
 		if !mayHaveTyped(err) {
 			s.threads.dropMessage(t.ID, message.ID)
 		}
@@ -259,4 +268,77 @@ func (s *Server) handleThreadRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendJSON(w, 200, map[string]any{"ok": true, "thread": view(t)})
+}
+
+// handleThreadCancel takes back what a thread still holds. A comment the
+// agent never saw removes its thread altogether; the texts come back so the
+// widget can put them in front of the user again.
+func (s *Server) handleThreadCancel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID string `json:"id"`
+	}
+	if !decodeBody(w, r, maxThreadBodyBytes, &body) {
+		return
+	}
+	s.deliverMu.Lock()
+	t, deleted, texts, err := s.threads.cancelHeld(body.ID)
+	s.deliverMu.Unlock()
+	switch {
+	case errors.Is(err, errNotHeld):
+		sendJSON(w, 409, map[string]any{"ok": false, "reason": "not_held", "error": "Already delivered — the agent has it."})
+		return
+	case err != nil:
+		unknownThread(w, body.ID)
+		return
+	}
+	resp := map[string]any{"ok": true, "deleted": deleted, "texts": texts}
+	if !deleted {
+		resp["thread"] = view(t)
+	}
+	sendJSON(w, 200, resp)
+}
+
+// handleThreadDeliver is "Send now": the held messages go in whatever the
+// agent is doing — into its own queue if it is working. A closed pane
+// routes afresh, as a follow-up would.
+func (s *Server) handleThreadDeliver(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID          string    `json:"id"`
+		URL         string    `json:"url"`
+		TargetAgent *AgentPin `json:"targetAgent"`
+	}
+	if !decodeBody(w, r, maxThreadBodyBytes, &body) {
+		return
+	}
+	current, _, err := s.threads.find(body.ID)
+	if err != nil {
+		unknownThread(w, body.ID)
+		return
+	}
+	pageURL := body.URL
+	if pageURL == "" {
+		pageURL = current.URL
+	}
+	var override *AgentPin
+	if body.TargetAgent != nil && body.TargetAgent.PaneID != "" {
+		override = body.TargetAgent
+	}
+	live, _ := s.agents(true)
+	res, rerouted := followUpTarget(current.Pane, live, func() Resolution {
+		return resolveTarget(s.routingInput(live, pageURL, override))
+	})
+	if res.Kind != "resolved" {
+		sendNoTarget(w, res, live)
+		return
+	}
+	switch err := s.deliver(body.ID, res.Agent); {
+	case errors.Is(err, errNotHeld):
+		sendJSON(w, 409, map[string]any{"ok": false, "reason": "not_held", "error": "Already delivered — the agent has it."})
+		return
+	case err != nil:
+		s.sendFailure(w, err, res.Agent.PaneID)
+		return
+	}
+	t, _, _ := s.threads.find(body.ID)
+	sendJSON(w, 200, map[string]any{"ok": true, "thread": view(t), "rerouted": rerouted})
 }

@@ -58,6 +58,9 @@ type Server struct {
 	agentErr   error
 
 	threads *ThreadStore
+	// Serializes deliveries of held comments; cooldown is per pane.
+	deliverMu sync.Mutex
+	cooldown  map[string]time.Time
 	// This binary's own path, spelled out in the reply command every prompt
 	// carries: the agent's PATH does not have it.
 	exe   string
@@ -98,13 +101,14 @@ type DevServer struct {
 func newServer(cfg Config) *Server {
 	page, _ := webFiles.ReadFile("web/index.html")
 	s := &Server{
-		cfg:     cfg,
-		proxies: newProxyRegistry(cfg.Port, stateDir()),
-		page:    []byte(strings.ReplaceAll(string(page), "{{PORT}}", strconv.Itoa(cfg.Port))),
-		etags:   map[string]string{},
-		threads: newThreadStore(filepath.Join(stateDir(), "threads")),
-		keys:    map[string]portProjects{},
-		exe:     "pointr",
+		cfg:      cfg,
+		proxies:  newProxyRegistry(cfg.Port, stateDir()),
+		page:     []byte(strings.ReplaceAll(string(page), "{{PORT}}", strconv.Itoa(cfg.Port))),
+		etags:    map[string]string{},
+		threads:  newThreadStore(filepath.Join(stateDir(), "threads")),
+		keys:     map[string]portProjects{},
+		cooldown: map[string]time.Time{},
+		exe:      "pointr",
 	}
 	if exe, err := os.Executable(); err == nil {
 		s.exe = exe
@@ -270,6 +274,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleThreadResolve(w, r)
 	case r.Method == http.MethodPost && path == "/threads/read":
 		s.handleThreadRead(w, r)
+	case r.Method == http.MethodPost && path == "/threads/cancel":
+		s.handleThreadCancel(w, r)
+	case r.Method == http.MethodPost && path == "/threads/deliver":
+		s.handleThreadDeliver(w, r)
 	default:
 		sendJSON(w, 404, map[string]any{"ok": false, "reason": "not_found", "error": "not found"})
 	}
@@ -411,8 +419,13 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	// The agent gets the URL it can reason about — the app's, not the proxy's.
 	prompt := formatPrompt(payload, upstream, screenshot, thread.ID, replyCommand(s.exe, s.cfg.Port, thread.ID))
 	autoSubmit := payload.AutoSubmit == nil || *payload.AutoSubmit
+	held := autoSubmit && busy(agent.Status)
 
-	if autoSubmit {
+	if held {
+		// Busy agent: keep it here until it is free (see delivery.go), so it
+		// can still be cancelled. Nothing is typed yet.
+		s.threads.holdFirst(thread.ID, prompt)
+	} else if autoSubmit {
 		if _, err := promptAgent(agent.PaneID, prompt); err != nil {
 			s.abandon(thread.ID, err)
 			s.sendFailure(w, err, agent.PaneID)
@@ -447,7 +460,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, 200, map[string]any{
 		"ok": true, "targetAgent": map[string]any{"paneId": agent.PaneID, "session": nullable(agent.SessionID)},
 		"project": project(agent.Cwd), "screenshot": nullable(screenshot), "status": agent.Status,
-		"autoSubmitted": autoSubmit, "stale": res.Stale, "thread": view(committed),
+		"autoSubmitted": autoSubmit, "stale": res.Stale, "thread": view(committed), "held": held,
 	})
 }
 
