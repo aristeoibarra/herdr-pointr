@@ -9,7 +9,7 @@ import { saveComposeDraft, takeComposeDraft } from "../session.ts";
 import { loadDomToPng } from "../shot-loader.ts";
 import { MAX_SHOT_CHARS, SEND_TIMEOUT_MS, SHOT_TIMEOUT_MS, TimeoutError, captureElement, captureViewport, withTimeout } from "../shot.ts";
 import { createDestinationPicker } from "./destination.ts";
-import { outline, place } from "./popover.ts";
+import { boxOf, outline, place } from "./popover.ts";
 
 interface Item {
   element: Element;
@@ -131,8 +131,10 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
   function drawMarks(): void {
     marks.replaceChildren();
     for (const item of items) {
+      const box = boxOf(item.element);
+      if (!box) continue;
       const mark = h("div", { className: "mark" });
-      outline(mark, item.element.getBoundingClientRect());
+      outline(mark, box);
       marks.append(mark);
     }
   }
@@ -141,7 +143,7 @@ export function createComposer(ctx: WidgetContext, deps: ComposerDeps): Composer
     if (pop.hidden) return;
     drawMarks();
     const last = items[items.length - 1];
-    place(pop, last ? last.element.getBoundingClientRect() : null);
+    place(pop, boxOf(last?.element));
   }
 
   function render(): void {

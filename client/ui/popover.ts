@@ -34,6 +34,17 @@ export function place(pop: HTMLElement, anchor: DOMRect | null): void {
   pop.style.top = `${Math.max(MARGIN, top)}px`;
 }
 
+/**
+ * An element's box, or null when it has none to point at: gone from the
+ * document, or not rendered — inside a closed modal, a collapsed section.
+ * Anchoring to its zero box would pin a popover to the page's corner.
+ */
+export function boxOf(el: Element | null | undefined): DOMRect | null {
+  if (!el?.isConnected) return null;
+  const rect = el.getBoundingClientRect();
+  return rect.width === 0 && rect.height === 0 ? null : rect;
+}
+
 /** Positions a fixed outline over an element's box. */
 export function outline(el: HTMLElement, rect: DOMRect, pad = 0): void {
   el.style.left = `${rect.left - pad}px`;

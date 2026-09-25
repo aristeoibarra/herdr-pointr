@@ -6,7 +6,7 @@ import { readDraft, rememberOpenThread, saveDraft } from "../session.ts";
 import { agentName, ago, isHeld, threadLabel, waitingText } from "../status-text.ts";
 import type { Store } from "../store.ts";
 import { createDestinationPicker } from "./destination.ts";
-import { outline, place } from "./popover.ts";
+import { boxOf, outline, place } from "./popover.ts";
 
 export interface ThreadView {
   readonly openId: string | null;
@@ -158,7 +158,7 @@ export function createThreadView(ctx: WidgetContext, deps: ThreadDeps): ThreadVi
     if (pop.hidden || !openId) return;
     const t = deps.store.get(openId);
     const el = t && anchored ? targetFor(t) : null;
-    const rect = el?.isConnected ? el.getBoundingClientRect() : null;
+    const rect = boxOf(el);
     anchor.hidden = !rect;
     if (rect) outline(anchor, rect, 4);
     place(pop, rect);
