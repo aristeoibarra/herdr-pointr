@@ -144,9 +144,12 @@ func pin(args []string) {
 		}
 	}
 	// Default to the pane this ran in, which is what herdr exports to an agent.
+	// Pane ids are opaque ("w3Y:p2"), so any argument that is not a flag is
+	// taken as one and checked against herdr below — a pattern that only knew
+	// numeric workspaces skipped the argument and pinned this pane instead.
 	paneID := os.Getenv("HERDR_PANE_ID")
 	for _, arg := range args {
-		if regexp.MustCompile(`^w\d+:p\d+$`).MatchString(arg) {
+		if !strings.HasPrefix(arg, "-") {
 			paneID = arg
 		}
 	}
