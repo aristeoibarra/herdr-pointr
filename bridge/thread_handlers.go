@@ -75,7 +75,8 @@ func unknownThread(w http.ResponseWriter, id string) {
 }
 
 // handleThreads answers GET /threads?url=…&since=… with the page's project:
-// its open threads, and the live state of the agents a thread waits on.
+// all its threads, open and resolved, and the live state of the agents an
+// open thread waits on.
 // since is the rev the widget already holds; when nothing changed the
 // threads are left out and only the live state goes back, which is what
 // keeps polling while a reply is pending cheap.
@@ -86,16 +87,16 @@ func (s *Server) handleThreads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := s.projectKey(pageURL)
-	rev, open, resolved := s.threads.list(key)
+	rev, all, resolved := s.threads.list(key)
 
 	resp := map[string]any{
 		"ok": true, "key": key, "project": project(key), "rev": rev,
 		"port": portOf(upstreamURL(pageURL, s.proxies.aliases())),
 	}
 	waitingOn := map[string]bool{}
-	for i := range open {
-		if open[i].waiting() && open[i].Pane != "" {
-			waitingOn[open[i].Pane] = true
+	for i := range all {
+		if all[i].waiting() && all[i].Pane != "" {
+			waitingOn[all[i].Pane] = true
 		}
 	}
 	agents := map[string]any{}
@@ -116,8 +117,8 @@ func (s *Server) handleThreads(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 200, resp)
 		return
 	}
-	views := make([]ThreadView, 0, len(open))
-	for _, t := range open {
+	views := make([]ThreadView, 0, len(all))
+	for _, t := range all {
 		views = append(views, view(t))
 	}
 	resp["unchanged"] = false

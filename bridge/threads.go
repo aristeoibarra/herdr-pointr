@@ -378,27 +378,28 @@ func (st *ThreadStore) markRead(id string) (Thread, error) {
 	return t.clone(), nil
 }
 
-// list returns a project's open threads, oldest first, and how many are
-// resolved. Reserved threads stay out until their prompt has gone through.
-func (st *ThreadStore) list(key string) (rev int64, open []Thread, resolved int) {
+// list returns every thread of a project, open and resolved, oldest first,
+// and how many are resolved. Reserved threads stay out until their prompt
+// has gone through.
+func (st *ThreadStore) list(key string) (rev int64, all []Thread, resolved int) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	all = []Thread{}
 	pf, ok := st.projects[key]
 	if !ok {
-		return 0, []Thread{}, 0
+		return 0, all, 0
 	}
-	open = []Thread{}
 	for _, t := range pf.Threads {
-		switch {
-		case t.pending:
-		case t.ResolvedAt != 0:
-			resolved++
-		default:
-			open = append(open, t.clone())
+		if t.pending {
+			continue
 		}
+		if t.ResolvedAt != 0 {
+			resolved++
+		}
+		all = append(all, t.clone())
 	}
-	sort.SliceStable(open, func(i, j int) bool { return open[i].CreatedAt < open[j].CreatedAt })
-	return pf.Rev, open, resolved
+	sort.SliceStable(all, func(i, j int) bool { return all[i].CreatedAt < all[j].CreatedAt })
+	return pf.Rev, all, resolved
 }
 
 func (st *ThreadStore) rev(key string) int64 {
