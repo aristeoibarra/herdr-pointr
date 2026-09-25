@@ -33,6 +33,13 @@ const (
 	sendWatch = 90 * time.Second
 	// Just long enough to collapse the burst of /resolve calls when tabs wake.
 	agentCacheTTL = time.Second
+	// A page's project is re-read from its port this often. Widgets poll every
+	// few seconds while a reply is pending; a /proc walk each time is waste.
+	projectKeyFresh = 15 * time.Second
+	// And the last answer that named a project is kept this long when the port
+	// goes quiet: a dev server mid-restart unbinds for a moment, and a comment
+	// sent then would otherwise be filed under the bare origin.
+	projectKeyStale = 10 * time.Minute
 )
 
 // Script bundles, embedded at build time. The screenshot bundle is separate so
@@ -53,6 +60,18 @@ type Server struct {
 	agentAt    time.Time
 	agentWait  chan struct{}
 	agentErr   error
+
+	threads *ThreadStore
+	keyMu   sync.Mutex
+	keys    map[string]portProjects
+}
+
+// portProjects is the cached evidence for one upstream port.
+type portProjects struct {
+	dirs   []string
+	at     time.Time
+	good   []string
+	goodAt time.Time
 }
 
 // AgentEntry is how an agent is shown in the widget's picker and the page.
@@ -82,6 +101,8 @@ func newServer(cfg Config) *Server {
 		proxies: newProxyRegistry(cfg.Port, stateDir()),
 		page:    []byte(strings.ReplaceAll(string(page), "{{PORT}}", strconv.Itoa(cfg.Port))),
 		etags:   map[string]string{},
+		threads: newThreadStore(filepath.Join(stateDir(), "threads")),
+		keys:    map[string]portProjects{},
 	}
 	// The bundles never change inside one binary, so their ETags are fixed.
 	for path, file := range scripts {
@@ -125,6 +146,38 @@ func (s *Server) agents(fresh bool) ([]Agent, error) {
 	s.agentWait = nil
 	close(wait)
 	return live, err
+}
+
+// informativeFor is portEvidence behind a short cache that also remembers
+// the last answer naming a project (see projectKeyStale).
+func (s *Server) informativeFor(port string) []string {
+	s.keyMu.Lock()
+	defer s.keyMu.Unlock()
+	entry := s.keys[port]
+	if time.Since(entry.at) >= projectKeyFresh {
+		_, dirs := portEvidence(port)
+		entry.dirs, entry.at = dirs, time.Now()
+		if len(dirs) > 0 {
+			entry.good, entry.goodAt = dirs, entry.at
+		}
+		s.keys[port] = entry
+	}
+	if len(entry.dirs) > 0 {
+		return entry.dirs
+	}
+	if len(entry.good) > 0 && time.Since(entry.goodAt) < projectKeyStale {
+		return entry.good
+	}
+	return nil
+}
+
+// projectKey names the project a page's threads are filed under.
+func (s *Server) projectKey(pageURL string) string {
+	projectPath := ""
+	if s.cfg.ProjectPath != nil {
+		projectPath = *s.cfg.ProjectPath
+	}
+	return projectKeyFor(upstreamURL(pageURL, s.proxies.aliases()), s.informativeFor, projectPath)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
