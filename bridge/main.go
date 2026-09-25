@@ -55,6 +55,8 @@ func main() {
 		openInBrowser(cfg.Port, target)
 	case "doctor":
 		doctor(cfg.Port)
+	case "reply":
+		os.Exit(replyCmd(cfg.Port, args))
 	case "", "help", "--help", "-h":
 		printHelp()
 	default:
@@ -249,6 +251,12 @@ func doctor(bridgePort int) {
 		fmt.Printf("port lookup    ok (%s)\n", strategy)
 	}
 	fmt.Printf("config         %s\n", configFile())
+	if exe, err := os.Executable(); err == nil {
+		// The first reply from Claude Code asks for Bash permission and leaves
+		// the pane blocked until someone answers it.
+		fmt.Printf("agent replies  %s reply --port %d <thread>\n", shellWord(exe), bridgePort)
+		fmt.Printf("               Claude Code allow rule: Bash(%s reply:*)\n", shellWord(exe))
+	}
 
 	bridge := fmt.Sprintf("http://localhost:%d", bridgePort)
 	client := http.Client{Timeout: 3 * time.Second}
@@ -288,6 +296,7 @@ Usage:
   pick                               Choose a destination from a list
   open <url|port>                    Open a dev server with the widget injected
   doctor                             Check herdr and port lookup
+  reply [--port N] <thread-id>       Answer a browser comment; text on stdin (run by the agent)
 
 Routing is automatic: the page's dev-server port maps to the directory it
 was launched from, which maps to the agent working there. Pin only when
