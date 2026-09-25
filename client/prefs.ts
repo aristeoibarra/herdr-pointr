@@ -27,6 +27,8 @@ export interface AgentPin {
 export interface Prefs {
   /** What a screenshot frames. Whether to take one is decided per comment. */
   shotTarget: ShotTarget;
+  /** Comment pins shown on the page; the dock's bubble toggles them. */
+  pins: boolean;
   /** Agent pinned in settings, or null for auto-routing. */
   targetAgent: AgentPin | null;
   /** Human label for the pinned agent, so the panel needn't refetch /agents. */
@@ -87,6 +89,7 @@ function readHotkey(value: unknown): Hotkey | null {
 export function loadPrefs(): Prefs {
   const prefs: Prefs = {
     shotTarget: "element",
+    pins: true,
     targetAgent: null,
     targetAgentLabel: null,
     hotkey: { ...DEFAULT_HOTKEY },
@@ -98,6 +101,7 @@ export function loadPrefs(): Prefs {
     // submitted, and a screenshot is chosen per comment.
     const shotTarget = saved["shotTarget"];
     if (shotTarget === "element" || shotTarget === "viewport") prefs.shotTarget = shotTarget;
+    if (typeof saved["pins"] === "boolean") prefs.pins = saved["pins"];
     const shotMode = saved["shotMode"];
     if (shotMode === "element" || shotMode === "viewport") prefs.shotTarget = shotMode;
     const pin = saved["targetAgent"];

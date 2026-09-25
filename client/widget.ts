@@ -9,12 +9,16 @@ import { createApi } from "./api.ts";
 import type { WidgetContext } from "./context.ts";
 import { installDiagnostics } from "./diagnostics.ts";
 import { h } from "./dom.ts";
+import { createPins } from "./pins.ts";
+import { createPoller } from "./poller.ts";
 import { hotkeyLabel, loadPrefs, matchesHotkey, savePrefs } from "./prefs.ts";
 import { createSelector } from "./select.ts";
+import { createStore } from "./store.ts";
 import { STYLES } from "./styles.ts";
 import { createComposer } from "./ui/composer.ts";
 import { createDock } from "./ui/dock.ts";
 import { createSettings } from "./ui/settings.ts";
+import { createThreadView } from "./ui/thread.ts";
 import { createToaster } from "./ui/toast.ts";
 
 const ROOT_ID = "pointr-root";
@@ -52,6 +56,7 @@ function mount(bridge: string): WidgetHandle {
   };
 
   const api = createApi(bridge);
+  const store = createStore();
   const toast = createToaster(ctx);
   const settings = createSettings(ctx, {
     api,
@@ -64,25 +69,59 @@ function mount(bridge: string): WidgetHandle {
     api,
     settings,
     pickAnother: () => selector.start(),
-    onSent: (_thread, project, notes) => {
-      const suffix = notes.length > 0 ? ` (${notes.join("; ")})` : "";
-      toast.show(`Sent to ${project || "the agent"}${suffix}.`);
+    onSent: (thread, project, notes) => {
+      if (notes.length > 0) toast.show(`Sent to ${project || "the agent"} (${notes.join("; ")}).`, { kind: "warn" });
+      if (!thread) return;
+      store.upsert(thread);
+      threads.open(thread.id);
+      poller.kick();
     },
   });
+  const pins = createPins(ctx, (id) => openThread(id));
+  const threads = createThreadView(ctx, {
+    api,
+    store,
+    settings,
+    elementFor: (id) => pins.elementFor(id),
+    changed: () => poller.kick(),
+    goTo: () => undefined,
+  });
+  const poller = createPoller(ctx, api, store, () => undefined);
   const selector = createSelector(ctx, {
     onPick: (el) => composer.add(el),
     onChange: (active) => dock.setSelecting(active),
   });
   const dock = createDock(ctx, {
     select: () => (selector.active ? selector.cancel() : startSelect()),
-    togglePins: () => undefined,
+    togglePins: () => {
+      prefs.pins = !prefs.pins;
+      ctx.savePrefs();
+      dock.setPins(prefs.pins);
+      pins.setVisible(prefs.pins);
+    },
     toggleList: () => undefined,
   });
-  dock.showComments(false);
+  dock.setPins(prefs.pins);
+  pins.setVisible(prefs.pins);
+
+  store.subscribe(() => {
+    const onPage = store.onPage();
+    pins.render(onPage);
+    dock.setCount(onPage.length);
+    dock.setUnread(store.anyUnread());
+    threads.refresh();
+  });
 
   function startSelect(): void {
     settings.close();
+    threads.close();
     selector.start();
+  }
+
+  function openThread(id: string): void {
+    composer.close();
+    settings.close();
+    threads.open(id);
   }
 
   /** Esc closes the topmost thing the widget has open, one layer at a time. */
@@ -90,6 +129,7 @@ function mount(bridge: string): WidgetHandle {
     if (selector.active) selector.cancel();
     else if (settings.isOpen) settings.close();
     else if (composer.isOpen) composer.close();
+    else if (threads.openId) threads.close();
     else return false;
     return true;
   }
@@ -111,7 +151,10 @@ function mount(bridge: string): WidgetHandle {
     { capture: true, signal },
   );
 
-  const reposition = (): void => composer.reposition();
+  const reposition = (): void => {
+    composer.reposition();
+    threads.reposition();
+  };
   window.addEventListener("scroll", reposition, { capture: true, passive: true, signal });
   window.addEventListener("resize", reposition, { passive: true, signal });
 
@@ -135,6 +178,8 @@ function mount(bridge: string): WidgetHandle {
     },
     { capture: true, signal },
   );
+
+  poller.kick();
 
   console.info(`[pointr] widget ready — ${hotkeyLabel(prefs.hotkey)} or the dock to comment on an element.`);
 
