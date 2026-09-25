@@ -40,7 +40,7 @@ cancel it or send it anyway. Reply in the thread to keep going, resolve it when 
 done; the list in the dock has every thread of the project, open and resolved. If no agent
 is open there, the page warns you; if several are, it asks.
 
-![An invoices page with a pin on the overdue amount and its thread open: the question, Claude Code's answer, and a reply box; the dock in the corner shows the comment count](docs/widget.png)
+![An invoices page with a pin on the overdue amount and its thread open: the question, Claude Code's answer, and a reply box; the dock in the corner shows the comment count](docs/thread.png)
 
 ## What the agent gets
 
