@@ -1,6 +1,6 @@
 {
   "name": "herdr-pointr",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "Point at a DOM element on a localhost page and it lands in the coding agent that owns that project, with its React component, selector, styles and a screenshot.",
   "type": "module",
   "scripts": {
