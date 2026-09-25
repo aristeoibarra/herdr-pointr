@@ -88,6 +88,8 @@ popover, list, settings and toast; `store.ts`/`poller.ts` keep the project's thr
 4. The agent runs `pointr reply <id>`, which `POST`s to `/threads/reply`. The widget, which polls
    `GET /threads` while anything waits, shows the reply in the thread next to the element.
 
+If the agent is busy at step 3, nothing is typed yet: the comment is held (below).
+
 ## Comment threads (bridge/threads.go, bridge/thread_handlers.go)
 
 - **Storage.** One JSON file per project in `stateDir()/threads/` (`<slug>-<hash>.json`, 0600),
@@ -112,10 +114,16 @@ popover, list, settings and toast; `store.ts`/`poller.ts` keep the project's thr
 - **Follow-ups** (`/threads/message`) stay with the pane holding the conversation while it lives
   (`followUpTarget`), and always carry the thread so far, capped — a restarted pane or a new agent
   would not remember the start.
-- **No queue, no "no reply" detection.** Claude Code queues what `agent.prompt` types while it is
-  working (verified 2026-09-24, herdr 0.9.1: the queued comment ran as the next turn). herdr does not
-  track turns, so "finished without replying" cannot be told apart from "not there yet"; a thread
-  just waits and shows what its agent is doing.
+- **Held comments (bridge/delivery.go).** Claude Code does queue what `agent.prompt` types while it
+  is working (verified 2026-09-24, herdr 0.9.1: the queued comment ran as the next turn), but once
+  typed it belongs to the agent and cannot be taken back. So a comment for a `working` or `blocked`
+  agent is **held** by the bridge — first message stores the prompt to type, follow-ups are written
+  at delivery — and a 2 s loop delivers it once the agent reads `idle`/`done`, one per pane per pass
+  with a cooldown, so the rest stay cancellable. `/threads/cancel` takes back what is held (a thread
+  the agent never saw is deleted); `/threads/deliver` is "Send now". Deliveries are serialized by
+  `deliverMu`. Held state survives a restart; the stored prompt never reaches the widget.
+- **No "no reply" detection.** herdr does not track turns, so "finished without replying" cannot be
+  told apart from "not there yet"; a thread just waits and shows what its agent is doing.
 - **Read state lives in the bridge**, not the tab: `/servers` counts unread replies per project for
   the setup page, and two tabs of one app must agree.
 - **No stream per tab.** The widget polls `/threads` once on load, then only while a thread waits

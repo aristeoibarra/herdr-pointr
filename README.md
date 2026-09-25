@@ -34,9 +34,11 @@ widget already in the page. Hot reload, API calls and assets work as usual. Ctrl
 a localhost URL in herdr does the same.
 
 **3. Press `Alt+C`, click an element, write a comment, send.** It goes to the agent
-working in that project's directory — into its queue if it is busy — and the answer shows
-up in a thread pinned to the element. Reply in the thread to keep going, resolve it when
-you are done. If no agent is open there, the page warns you; if several are, it asks.
+working in that project's directory and the answer shows up in a thread pinned to the
+element. If the agent is busy, the comment waits in pointr until it is free — you can still
+cancel it or send it anyway. Reply in the thread to keep going, resolve it when you are
+done; the list in the dock has every thread of the project, open and resolved. If no agent
+is open there, the page warns you; if several are, it asks.
 
 ## What the agent gets
 
