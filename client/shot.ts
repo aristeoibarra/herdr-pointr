@@ -56,11 +56,16 @@ export async function captureElement(bridge: string, targets: Element[]): Promis
   return domToPng(target, { scale: 1, backgroundColor: "#ffffff" });
 }
 
-/** The whole visible viewport with every selected element outlined — context, not a crop. */
+/**
+ * The whole visible viewport with every selected element outlined — context,
+ * not a crop. It rasterizes the root element, not the body: a cloned body is
+ * laid out again inside the rasterizer's frame and picked up an 8px offset,
+ * so the outline, drawn at viewport coordinates, cut through its element.
+ */
 export async function captureViewport(bridge: string, targets: Element[], rootId: string): Promise<string | null> {
   const boxes = targets.map((el) => el.getBoundingClientRect());
   const domToPng = await loadDomToPng(bridge);
-  const png = await domToPng(document.body, {
+  const png = await domToPng(document.documentElement, {
     width: window.innerWidth,
     height: window.innerHeight,
     backgroundColor: "#ffffff",
