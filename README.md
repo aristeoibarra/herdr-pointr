@@ -73,8 +73,9 @@ find the file. For exact locations, mount
 
 ## Good to know
 
-- **Settings** (destination, shortcut, screenshot framing) are behind the gear in the
-  comment list, or the destination chip on a comment. The bubble in the dock hides the pins.
+- **Destination**: the chip on a comment picks the agent, or leaves it on auto. The shortcut
+  and the screenshot framing are behind the gear in the comment list. The bubble in the dock
+  hides the pins.
 - **The first reply asks permission** in Claude Code, since it runs a shell command.
   `pointr doctor` prints the allow rule (`Bash(<path>/pointr reply:*)`) to skip that.
   An agent sandboxed without network access cannot reach the bridge to reply.

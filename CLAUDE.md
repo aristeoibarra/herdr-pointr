@@ -62,7 +62,7 @@ In `client/`, imports use explicit `.ts` extensions (`allowImportingTsExtensions
 resolution); keep that style. `verbatimModuleSyntax` is on, so use `import type` for types.
 
 The widget is small modules wired by `client/widget.ts`: `ui/` holds the dock, composer, thread
-popover, list, settings and toast; `store.ts`/`poller.ts` keep the project's threads; `pins.ts` and
+popover, list, destination picker, settings and toast; `store.ts`/`poller.ts` keep the project's threads; `pins.ts` and
 `anchor.ts` put them on the page. Three rules hold across all of them:
 - **Text goes in as text.** `dom.ts`'s `h()` appends strings as text nodes; thread messages come from
   agents, so nothing built from data passes through `innerHTML`.
@@ -259,9 +259,13 @@ wrappers because Next renames them across versions; extend the pattern rather th
 
 ## Settings live in the widget
 
-The gear in the comment list, or the destination chip on a comment, opens them: the destination
-agent, the selection shortcut and the screenshot framing. The dock's bubble toggles the pins. They
-live in the page's `localStorage` (`pointr-prefs`), written on every change. Send-on-click is gone:
+The destination is the chip on a comment: a native `<select>` dressed as one (`ui/destination.ts`),
+so choosing an agent is one click and the list is the browser's. It warns before sending when
+`/resolve` reports more than one candidate, and a thread shows the same picker only when a reply
+comes back 409. The selection shortcut and the screenshot framing are behind the gear in the
+comment list, which turns that panel into the settings — no popover of its own. The dock's bubble
+toggles the pins. All of it lives in the page's `localStorage` (`pointr-prefs`), written on every
+change. Send-on-click is gone:
 every comment is submitted, since the thread is where it gets reviewed. Whether a comment carries a
 screenshot is chosen per comment and not remembered — an image in every comment costs context.
 
