@@ -73,6 +73,9 @@ find the file. For exact locations, mount
 
 ## Good to know
 
+- **Pins follow their element** when the agent edits it, moves it or the list re-sorts, and
+  let go when it is removed rather than landing on a neighbour. If one ends up somewhere
+  wrong, or the element is gone, the thread's target button pins it again.
 - **Destination**: the chip on a comment picks the agent, or leaves it on auto. The shortcut
   and the screenshot framing are behind the gear in the comment list. The bubble in the dock
   hides the pins.

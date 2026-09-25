@@ -62,8 +62,9 @@ In `client/`, imports use explicit `.ts` extensions (`allowImportingTsExtensions
 resolution); keep that style. `verbatimModuleSyntax` is on, so use `import type` for types.
 
 The widget is small modules wired by `client/widget.ts`: `ui/` holds the dock, composer, thread
-popover, list, destination picker, settings and toast; `store.ts`/`poller.ts` keep the project's threads; `pins.ts` and
-`anchor.ts` put them on the page. Three rules hold across all of them:
+popover, list, destination picker, settings and toast; `store.ts`/`poller.ts` keep the project's
+threads; `pins.ts` and `anchor.ts` put them on the page and keep them there (below). Three rules
+hold across all of them:
 - **Text goes in as text.** `dom.ts`'s `h()` appends strings as text nodes; thread messages come from
   agents, so nothing built from data passes through `innerHTML`.
 - **Everything lives in the shadow root**, pins included — the host's event guards are what keep a
@@ -129,6 +130,43 @@ If the agent is busy at step 3, nothing is typed yet: the comment is held (below
 - **No stream per tab.** The widget polls `/threads` once on load, then only while a thread waits
   and the tab is visible, slower as the wait grows. A browser allows ~6 HTTP/1.1 connections per
   host across all tabs; an SSE per tab would starve the bridge. `/status` (SSE) stays for tooling.
+
+## Finding a thread's element again (client/anchor.ts, client/pins.ts)
+
+A thread stores a photo of its element (`Anchor`): selector, text, the text around it (`contextOf`:
+the nearest ancestor with other text, 90 characters each side), component/source, its box
+(`pos`, with the viewport width) and, for a positional selector, what its look-alikes read
+(`peers`). Most of the time the element goes missing because the agent edited it, so finding it
+again is the normal case, not the edge.
+
+- **Proof first.** The id, a selector without positions, or a positional one whose element reads
+  the same — by text only when nothing built the same way shares it (a row's "Edit" button proves
+  nothing), else by the text around it.
+- **Then weighing.** Every look-alike scores on text, surroundings, whether the agent's reply
+  quotes its text (replies say what the element reads now — this is what brings back threads
+  from before `context` existed), the selector and its shape, and the same box in the same place.
+  The best is taken only at 4 or more and 2 ahead of the next.
+- **The neighbour guard is the load-bearing part.** When the element is removed, the next one
+  slides into its place and matches its selector, shape and box. A candidate reading like one of
+  the stored `peers` (or the context's edges) is that neighbour and loses 6. Weakening this pins
+  threads to the wrong element, silently. A pin on the wrong element misleads; no pin does not.
+- **Pins keep the photo current.** The mutation pass (childList + characterData, on whenever the
+  page has threads) notices a pinned element that reads differently. Still proven: nothing. The
+  photo points elsewhere: the content moved there (a list reusing nodes), so does the pin. The
+  node now reads like a neighbour: it was reused for it, the pin drops. Otherwise it was edited in
+  place (hot reload): the pin stays and the photo is renewed through `/threads/anchor` after
+  1.5 s quiet. Anything found by weighing is renewed too, so the next load proves it. Renewing is
+  not activity: `updatedAt` stays.
+- **Last resort is manual.** A thread whose element is gone offers "Pin again"; a pinned one has
+  "Move pin". Both replace the first anchor with a picked element.
+
+There is no automated test: the repo has no browser to run one in. The scoring was tuned against
+these scenarios, each guard failing at least one when removed: own text edited; text and its label
+edited in place; a sibling edited; old photo with the reply quoting the new text (and without);
+card removed (with and without the reply naming the neighbour); card inserted before (and edited);
+list reordered; list item removed; same-text buttons with a row inserted, removed, re-sorted;
+class renamed (and text edited); item removed while two were added and quoted; element replaced by
+another tag. Re-run them after touching a weight.
 
 ## Routing cascade (`resolveTarget` in bridge/routing.go)
 
