@@ -68,7 +68,7 @@ export async function captureViewport(bridge: string, targets: Element[], rootId
   const png = await domToPng(document.documentElement, {
     width: window.innerWidth,
     height: window.innerHeight,
-    backgroundColor: "#ffffff",
+    backgroundColor: pageBackground(),
     filter: (node) => !(node instanceof Element && node.id === rootId),
     style: {
       transform: `translate(${-window.scrollX}px, ${-window.scrollY}px)`,
@@ -76,6 +76,19 @@ export async function captureViewport(bridge: string, targets: Element[], rootId
     },
   });
   return drawHighlights(png, boxes);
+}
+
+/**
+ * What the browser paints behind the page: the root's background, else the
+ * body's, which the canvas takes over. Rendered on its own, the root would
+ * leave everything below a short body white.
+ */
+function pageBackground(): string {
+  for (const el of [document.documentElement, document.body]) {
+    const colour = getComputedStyle(el).backgroundColor;
+    if (colour && colour !== "transparent" && colour !== "rgba(0, 0, 0, 0)") return colour;
+  }
+  return "#ffffff";
 }
 
 function drawHighlights(dataUrl: string, boxes: DOMRect[]): Promise<string> {
