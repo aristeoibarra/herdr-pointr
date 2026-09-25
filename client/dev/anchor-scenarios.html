@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Anchor scenarios</title>
+<style>
+  /* Layout matters: a photo stores where its element sat, so the scenarios
+     run on a fixed-width page the size a real one would be. */
+  body { margin: 0; padding: 24px; width: 960px; font: 14px/1.5 system-ui, sans-serif; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { padding: 20px; border: 1px solid #ccc; }
+  td { padding: 8px 16px; }
+  li { padding: 6px; }
+  #summary { font-weight: 600; margin: 0 0 12px; }
+  #results { font: 12.5px/1.7 ui-monospace, monospace; white-space: pre-wrap; }
+  .pass { color: #15803d; }
+  .fail { color: #b91c1c; font-weight: 600; }
+</style>
+</head>
+<body>
+<p id="summary">Running…</p>
+<div id="results"></div>
+<div id="app"></div>
+<script src="anchor-scenarios.global.js"></script>
+</body>
+</html>

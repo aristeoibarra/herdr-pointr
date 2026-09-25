@@ -1,5 +1,6 @@
 import { finder } from "@medv/finder";
 
+import type { AnchorPos } from "./api.ts";
 import { inspectComponent } from "./frameworks/index.ts";
 
 export interface ElementPayload {
@@ -15,6 +16,12 @@ export interface ElementPayload {
   role: string | null;
   accessibleName: string | null;
   text: string;
+  /** The text around this element — see contextOf. */
+  context: string;
+  /** Where it sat on the page — see posOf. */
+  pos: AnchorPos;
+  /** What the elements shaped like it nearby read — see peersOf. */
+  peers: string[];
   styles: Record<string, string>;
   box: { x: number; y: number; w: number; h: number };
   html: string;
@@ -97,7 +104,7 @@ function camelToKebab(value: string): string {
 }
 
 /** Stable, readable selector — finder strips Tailwind utility noise for us. */
-function buildSelector(el: Element): string {
+export function buildSelector(el: Element): string {
   try {
     return finder(el, {
       idName: (name) => /^[a-zA-Z][\w-]{2,}$/.test(name) && !/^:r/.test(name),
@@ -146,14 +153,83 @@ function compactHtml(el: Element): string {
   return clone.outerHTML;
 }
 
+const squash = (value: string): string => value.replace(/\s+/g, " ").trim();
+
+const POSITIONS = /:nth-(?:of-type|child)\(\d+\)/g;
+
+/** Whether a selector picks its element by position among siblings. */
+export function isPositional(selector: string): boolean {
+  return selector.includes(":nth-");
+}
+
+/** The selector without positions: every element built the same way. */
+export function shapeOf(selector: string): string {
+  return selector.replace(POSITIONS, "");
+}
+
+/**
+ * What surrounds an element: the text of its nearest ancestor that has any
+ * beyond the element's own, with the element's cut out and its place marked
+ * — up to 90 characters each side. Editing the element leaves this
+ * unchanged; the page reshuffling so a positional selector lands on a
+ * neighbour does not. A button alone in its cell says nothing about which
+ * row it is in, so the walk goes on up to the row.
+ */
+export function contextOf(el: Element): string {
+  const own = squash(el.textContent ?? "");
+  let scope = el.parentElement;
+  for (let hops = 0; scope && hops < 4; hops++, scope = scope.parentElement) {
+    const whole = squash(scope.textContent ?? "");
+    if (whole === own) continue;
+    const at = own ? whole.indexOf(own) : -1;
+    if (at < 0) return whole.slice(0, 180);
+    return `${whole.slice(Math.max(0, at - 90), at)}…${whole.slice(at + own.length, at + own.length + 90)}`;
+  }
+  return "";
+}
+
+/** The element's box in document pixels, and the viewport width it was measured at. */
+export function posOf(el: Element): AnchorPos {
+  const rect = el.getBoundingClientRect();
+  return {
+    x: Math.round(rect.left + rect.width / 2 + window.scrollX),
+    y: Math.round(rect.top + rect.height / 2 + window.scrollY),
+    w: Math.round(rect.width),
+    h: Math.round(rect.height),
+    vw: window.innerWidth,
+  };
+}
+
+/**
+ * What the elements built like this one read, the nearest six on each side
+ * in document order. Only for a positional selector, where the element is
+ * told from its siblings by place alone: when it is removed, the next one
+ * slides into that place, and this is how the pin knows it for the neighbour.
+ */
+export function peersOf(el: Element, selector: string): string[] {
+  if (!isPositional(selector)) return [];
+  let all: Element[];
+  try {
+    all = [...document.querySelectorAll(shapeOf(selector))];
+  } catch {
+    return [];
+  }
+  const at = all.indexOf(el);
+  if (at < 0 || all.length > 60) return [];
+  const near = [...all.slice(Math.max(0, at - 6), at), ...all.slice(at + 1, at + 7)];
+  const texts = near.map((peer) => squash(peer.textContent ?? "").slice(0, 40)).filter(Boolean);
+  return [...new Set(texts)];
+}
+
 export function buildElementPayload(el: Element): ElementPayload {
   const rect = el.getBoundingClientRect();
   const info = inspectComponent(el);
   // data-source is only present if the optional Babel plugin is enabled, and
   // when it is, it is exact — so it beats whatever the adapter could infer.
   const sourceEl = el.closest("[data-source]");
+  const selector = buildSelector(el);
   return {
-    selector: buildSelector(el),
+    selector,
     tag: el.tagName.toLowerCase(),
     id: el.id || null,
     framework: info?.framework ?? null,
@@ -164,6 +240,9 @@ export function buildElementPayload(el: Element): ElementPayload {
     role: el.getAttribute("role"),
     accessibleName: accessibleName(el),
     text: (el.textContent ?? "").trim(),
+    context: contextOf(el),
+    pos: posOf(el),
+    peers: peersOf(el, selector),
     styles: captureStyles(el),
     box: {
       x: Math.round(rect.x),

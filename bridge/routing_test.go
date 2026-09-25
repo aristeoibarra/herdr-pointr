@@ -134,6 +134,86 @@ func TestUpstreamURL(t *testing.T) {
 	}
 }
 
+func TestProjectKeyFor(t *testing.T) {
+	evidence := map[string][]string{
+		"3000": {"/home/u/dev/shop/"},
+		"4000": {"/home/u/dev/b", "/home/u/dev/a"},
+	}
+	var asked []string
+	lookup := func(port string) []string {
+		asked = append(asked, port)
+		return evidence[port]
+	}
+
+	t.Run("keys a proxied page by the app's project, never the proxy's", func(t *testing.T) {
+		// Same bug class as upstreamURL: the proxy port is served by the
+		// bridge, and keying on it would file every project's threads under
+		// pointr's checkout.
+		asked = nil
+		upstream := upstreamURL("http://localhost:13000/cart", map[string]string{"13000": "3000"})
+		if got := projectKeyFor(upstream, lookup, ""); got != "/home/u/dev/shop" {
+			t.Fatalf("got %q", got)
+		}
+		if !slices.Equal(asked, []string{"3000"}) {
+			t.Fatalf("looked up ports %v, want only 3000", asked)
+		}
+	})
+	t.Run("picks the same directory every time when several name a project", func(t *testing.T) {
+		if got := projectKeyFor("http://localhost:4000/", lookup, ""); got != "/home/u/dev/a" {
+			t.Fatalf("got %q", got)
+		}
+	})
+	t.Run("falls back to the configured project, then the origin", func(t *testing.T) {
+		if got := projectKeyFor("http://localhost:5000/", lookup, "/home/u/dev/site/"); got != "/home/u/dev/site" {
+			t.Fatalf("got %q", got)
+		}
+		if got := projectKeyFor("http://127.0.0.1:5000/x", lookup, ""); got != "localhost:5000" {
+			t.Fatalf("got %q", got)
+		}
+	})
+	t.Run("folds the loopback spellings into one origin", func(t *testing.T) {
+		a := projectKeyFor("http://localhost:5000/", lookup, "")
+		b := projectKeyFor("http://127.0.0.1:5000/", lookup, "")
+		c := projectKeyFor("http://[::1]:5000/", lookup, "")
+		if a != b || b != c {
+			t.Fatalf("got %q, %q, %q", a, b, c)
+		}
+	})
+}
+
+func TestFollowUpTarget(t *testing.T) {
+	elsewhere := func() Resolution {
+		a := agent("w2:p1", "/repo")
+		return Resolution{Kind: "resolved", Agent: &a, Via: "port"}
+	}
+	t.Run("stays with the thread's pane even when routing now picks another", func(t *testing.T) {
+		// The conversation lives in that pane; sending the follow-up to
+		// whoever routing favours today would answer it without its context.
+		called := false
+		res, rerouted := followUpTarget("w1:p1", []Agent{agent("w1:p1", "/old"), agent("w2:p1", "/repo")}, func() Resolution {
+			called = true
+			return elsewhere()
+		})
+		if rerouted || called || res.Agent == nil || res.Agent.PaneID != "w1:p1" {
+			t.Fatalf("got %+v rerouted=%v routed=%v", res.Agent, rerouted, called)
+		}
+	})
+	t.Run("routes afresh only when the pane is gone", func(t *testing.T) {
+		res, rerouted := followUpTarget("w1:p1", []Agent{agent("w2:p1", "/repo")}, elsewhere)
+		if !rerouted || res.Agent == nil || res.Agent.PaneID != "w2:p1" {
+			t.Fatalf("got %+v rerouted=%v", res.Agent, rerouted)
+		}
+	})
+	t.Run("reports ambiguity instead of guessing", func(t *testing.T) {
+		res, _ := followUpTarget("w1:p1", nil, func() Resolution {
+			return Resolution{Kind: "ambiguous", Candidates: []Agent{agent("w2:p1", "/a"), agent("w3:p1", "/a")}}
+		})
+		if res.Kind != "ambiguous" || res.Agent != nil {
+			t.Fatalf("got %+v", res)
+		}
+	})
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

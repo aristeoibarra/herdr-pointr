@@ -50,7 +50,6 @@ func (c *sseClient) end() { c.once.Do(func() { close(c.ended) }) }
 type watcher struct {
 	paneID    string
 	clients   map[*sseClient]bool
-	holds     int
 	status    string
 	title     string
 	hasTitle  bool
@@ -212,7 +211,7 @@ func subscribePane(paneID string) *Subscription {
 
 func evictOneLocked() bool {
 	for paneID, w := range watchers {
-		if len(w.clients) == 0 && w.holds == 0 {
+		if len(w.clients) == 0 {
 			destroyLocked(paneID)
 			return true
 		}
@@ -252,50 +251,16 @@ func destroyLocked(paneID string) {
 }
 
 func scheduleIdleLocked(w *watcher) {
-	if len(w.clients)+w.holds > 0 || w.idleTimer != nil {
+	if len(w.clients) > 0 || w.idleTimer != nil {
 		return
 	}
 	w.idleTimer = time.AfterFunc(idleGrace, func() {
 		watchMu.Lock()
 		defer watchMu.Unlock()
-		if watchers[w.paneID] == w && len(w.clients)+w.holds == 0 {
+		if watchers[w.paneID] == w && len(w.clients) == 0 {
 			destroyLocked(w.paneID)
 		}
 	})
-}
-
-// retain holds a watcher open for a window, with no client attached. /send
-// calls it *before* prompting: subscriptions do not replay, so the
-// subscription has to be acked before the agent starts working, or the first
-// transition is lost. It also covers the gap until the EventSource connects.
-func retain(paneID string, window time.Duration) {
-	watchMu.Lock()
-	defer watchMu.Unlock()
-	w := ensureWatcherLocked(paneID)
-	if w == nil {
-		return
-	}
-	w.holds++
-	time.AfterFunc(window, func() {
-		watchMu.Lock()
-		defer watchMu.Unlock()
-		w.holds = max(0, w.holds-1)
-		scheduleIdleLocked(w)
-	})
-}
-
-// seed notes what we already know, so a late client gets it at once.
-func seed(paneID, status, session string) {
-	watchMu.Lock()
-	defer watchMu.Unlock()
-	if w := watchers[paneID]; w != nil {
-		if status != "" {
-			w.status = status
-		}
-		if session != "" {
-			w.session = session
-		}
-	}
 }
 
 // serveStatusStream attaches one SSE client and blocks until it goes away.

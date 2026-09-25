@@ -100,7 +100,7 @@ func saveConfig(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configFile(), append(raw, '\n'), 0o644)
+	return writeFileAtomic(configFile(), append(raw, '\n'), 0o644)
 }
 
 func homeDir() string {

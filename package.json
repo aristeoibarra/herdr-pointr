@@ -6,7 +6,8 @@
   "scripts": {
     "build": "rm -rf dist && tsup && CGO_ENABLED=0 go build -trimpath -ldflags=\"-s -w\" -o dist/pointr ./bridge",
     "typecheck": "tsc --noEmit && go vet ./bridge",
-    "test": "go test ./bridge"
+    "test": "go test ./bridge",
+    "scenarios": "tsup client/dev/anchor-scenarios.ts --no-config --format iife --platform browser --target es2020 --out-dir dist/scenarios --silent && cp client/dev/anchor-scenarios.html dist/scenarios/ && echo \"Open dist/scenarios/anchor-scenarios.html in a browser: every row must read PASS.\""
   },
   "repository": {
     "type": "git",

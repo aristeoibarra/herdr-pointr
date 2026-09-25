@@ -27,12 +27,15 @@ var webFiles embed.FS
 
 const (
 	maxBodyBytes = 5_000_000
-	// How long a watcher is held open around a send. Long enough for the
-	// agent to start and the EventSource to connect, short enough that an
-	// abandoned tab doesn't pin a herdr socket.
-	sendWatch = 90 * time.Second
 	// Just long enough to collapse the burst of /resolve calls when tabs wake.
 	agentCacheTTL = time.Second
+	// A page's project is re-read from its port this often. Widgets poll every
+	// few seconds while a reply is pending; a /proc walk each time is waste.
+	projectKeyFresh = 15 * time.Second
+	// And the last answer that named a project is kept this long when the port
+	// goes quiet: a dev server mid-restart unbinds for a moment, and a comment
+	// sent then would otherwise be filed under the bare origin.
+	projectKeyStale = 10 * time.Minute
 )
 
 // Script bundles, embedded at build time. The screenshot bundle is separate so
@@ -53,6 +56,24 @@ type Server struct {
 	agentAt    time.Time
 	agentWait  chan struct{}
 	agentErr   error
+
+	threads *ThreadStore
+	// Serializes deliveries of held comments; cooldown is per pane.
+	deliverMu sync.Mutex
+	cooldown  map[string]time.Time
+	// This binary's own path, spelled out in the reply command every prompt
+	// carries: the agent's PATH does not have it.
+	exe   string
+	keyMu sync.Mutex
+	keys  map[string]portProjects
+}
+
+// portProjects is the cached evidence for one upstream port.
+type portProjects struct {
+	dirs   []string
+	at     time.Time
+	good   []string
+	goodAt time.Time
 }
 
 // AgentEntry is how an agent is shown in the widget's picker and the page.
@@ -73,15 +94,26 @@ type DevServer struct {
 	Project string       `json:"project"`
 	Cwd     string       `json:"cwd"`
 	Agents  []AgentEntry `json:"agents"`
+	// Replies in this project's threads nobody has opened yet.
+	Unread int `json:"unread"`
 }
 
 func newServer(cfg Config) *Server {
 	page, _ := webFiles.ReadFile("web/index.html")
 	s := &Server{
-		cfg:     cfg,
-		proxies: newProxyRegistry(cfg.Port, stateDir()),
-		page:    []byte(strings.ReplaceAll(string(page), "{{PORT}}", strconv.Itoa(cfg.Port))),
-		etags:   map[string]string{},
+		cfg:      cfg,
+		proxies:  newProxyRegistry(cfg.Port, stateDir()),
+		page:     []byte(strings.ReplaceAll(string(page), "{{PORT}}", strconv.Itoa(cfg.Port))),
+		etags:    map[string]string{},
+		threads:  newThreadStore(filepath.Join(stateDir(), "threads")),
+		keys:     map[string]portProjects{},
+		cooldown: map[string]time.Time{},
+		exe:      "pointr",
+	}
+	if exe, err := os.Executable(); err == nil {
+		s.exe = exe
+	} else {
+		fmt.Fprintln(os.Stderr, "threads: cannot find this binary's path; reply commands will say plain `pointr`")
 	}
 	// The bundles never change inside one binary, so their ETags are fixed.
 	for path, file := range scripts {
@@ -125,6 +157,38 @@ func (s *Server) agents(fresh bool) ([]Agent, error) {
 	s.agentWait = nil
 	close(wait)
 	return live, err
+}
+
+// informativeFor is portEvidence behind a short cache that also remembers
+// the last answer naming a project (see projectKeyStale).
+func (s *Server) informativeFor(port string) []string {
+	s.keyMu.Lock()
+	defer s.keyMu.Unlock()
+	entry := s.keys[port]
+	if time.Since(entry.at) >= projectKeyFresh {
+		_, dirs := portEvidence(port)
+		entry.dirs, entry.at = dirs, time.Now()
+		if len(dirs) > 0 {
+			entry.good, entry.goodAt = dirs, entry.at
+		}
+		s.keys[port] = entry
+	}
+	if len(entry.dirs) > 0 {
+		return entry.dirs
+	}
+	if len(entry.good) > 0 && time.Since(entry.goodAt) < projectKeyStale {
+		return entry.good
+	}
+	return nil
+}
+
+// projectKey names the project a page's threads are filed under.
+func (s *Server) projectKey(pageURL string) string {
+	projectPath := ""
+	if s.cfg.ProjectPath != nil {
+		projectPath = *s.cfg.ProjectPath
+	}
+	return projectKeyFor(upstreamURL(pageURL, s.proxies.aliases()), s.informativeFor, projectPath)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +238,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 200, map[string]any{
 			"ok": true, "cwd": cwd, "portStrategy": portStrategy(), "portOwners": owners,
 			"agents": entries(live), "resolution": describe(res), "trace": res.Trace,
+			// Where this page's comment threads are filed — "why don't my
+			// threads show?" answered next to "why did it route there?".
+			"threadsKey": s.projectKey(pageURL),
 		})
 	case get && path == "/resolve":
 		live, _ := s.agents(false)
@@ -181,7 +248,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if res.Kind == "resolved" {
 			sendJSON(w, 200, map[string]any{
 				"ok": true, "project": project(res.Agent.Cwd),
-				"agent": map[string]any{"paneId": res.Agent.PaneID, "session": nullable(res.Agent.SessionID)},
+				"agent": map[string]any{"paneId": res.Agent.PaneID, "session": nullable(res.Agent.SessionID), "kind": res.Agent.Kind},
 				"via":   res.Via, "trace": res.Trace,
 			})
 			return
@@ -195,8 +262,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 200, map[string]any{"ok": true, "agents": entries(live)})
 	case get && path == "/status":
 		s.handleStatus(w, r)
+	case get && path == "/threads":
+		s.handleThreads(w, r)
 	case r.Method == http.MethodPost && path == "/send":
 		s.handleSend(w, r)
+	case r.Method == http.MethodPost && path == "/threads/reply":
+		s.handleThreadReply(w, r)
+	case r.Method == http.MethodPost && path == "/threads/message":
+		s.handleThreadMessage(w, r)
+	case r.Method == http.MethodPost && path == "/threads/resolve":
+		s.handleThreadResolve(w, r)
+	case r.Method == http.MethodPost && path == "/threads/anchor":
+		s.handleThreadAnchor(w, r)
+	case r.Method == http.MethodPost && path == "/threads/read":
+		s.handleThreadRead(w, r)
+	case r.Method == http.MethodPost && path == "/threads/cancel":
+		s.handleThreadCancel(w, r)
+	case r.Method == http.MethodPost && path == "/threads/deliver":
+		s.handleThreadDeliver(w, r)
 	default:
 		sendJSON(w, 404, map[string]any{"ok": false, "reason": "not_found", "error": "not found"})
 	}
@@ -255,23 +338,23 @@ func (s *Server) routingInput(live []Agent, pageURL string, override *AgentPin) 
 // the routing's own evidence test, so the list shows exactly what routing
 // could attribute to a project; the bridge's own ports are left out.
 func (s *Server) devServers(live []Agent) []DevServer {
-	byPort := map[int]DevServer{}
+	byPort := map[int][]string{}
 	self := os.Getpid()
 	for _, entry := range listeningPorts() {
-		if entry.Pid == self || entry.Cwd == "" || s.proxies.owns(entry.Port) {
+		if entry.Pid == self || entry.Cwd == "" || s.proxies.owns(entry.Port) || !isInformativeProjectDir(entry.Cwd) {
 			continue
 		}
-		if _, seen := byPort[entry.Port]; seen || !isInformativeProjectDir(entry.Cwd) {
-			continue
-		}
-		byPort[entry.Port] = DevServer{
-			Port: entry.Port, Project: project(entry.Cwd), Cwd: entry.Cwd,
-			Agents: entriesAmong(matchAgents(entry.Cwd, live, isInformativeProjectDir), live),
-		}
+		byPort[entry.Port] = append(byPort[entry.Port], entry.Cwd)
 	}
 	servers := make([]DevServer, 0, len(byPort))
-	for _, server := range byPort {
-		servers = append(servers, server)
+	for port, dirs := range byPort {
+		// The same pick the thread store keys on, so the page and the list agree.
+		cwd := projectDir(dirs)
+		servers = append(servers, DevServer{
+			Port: port, Project: project(cwd), Cwd: cwd,
+			Agents: entriesAmong(matchAgents(cwd, live, isInformativeProjectDir), live),
+			Unread: s.threads.unread(cwd),
+		})
 	}
 	sort.Slice(servers, func(i, j int) bool { return servers[i].Port < servers[j].Port })
 	return servers
@@ -325,47 +408,52 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	live, _ := s.agents(false)
 	res := resolveTarget(s.routingInput(live, *payload.URL, overrideFrom(payload)))
 	if res.Kind != "resolved" {
-		message := "No agent found for this project. Open one in herdr inside the project directory, or pin one."
-		if res.Kind == "ambiguous" {
-			message = "Several agents could be working on this project — pick one behind the gear in the panel."
-		}
-		sendJSON(w, 409, map[string]any{"ok": false, "reason": noMatchReason(res), "error": message,
-			"candidates": entriesAmong(res.Candidates, live), "trace": res.Trace})
+		sendNoTarget(w, res, live)
 		return
 	}
 
 	agent := res.Agent
+	upstream := upstreamURL(*payload.URL, s.proxies.aliases())
+	// Reserved before the prompt goes out: a quick agent can answer before
+	// herdr has even returned, and its reply needs a thread to land in.
+	thread := s.threads.reserve(s.projectKey(*payload.URL), newThreadFromSend(payload, upstream, agent))
 	screenshot := saveScreenshot(payload.Screenshot)
 	// The agent gets the URL it can reason about — the app's, not the proxy's.
-	prompt := formatPrompt(payload, upstreamURL(*payload.URL, s.proxies.aliases()), screenshot)
+	prompt := formatPrompt(payload, upstream, screenshot, thread.ID, replyCommand(s.exe, s.cfg.Port, thread.ID))
 	autoSubmit := payload.AutoSubmit == nil || *payload.AutoSubmit
+	held := autoSubmit && busy(agent.Status)
 
-	if autoSubmit {
-		// Subscribe before prompting: subscriptions don't replay, so a watcher
-		// opened afterwards would miss the very transition it exists to report.
-		retain(agent.PaneID, sendWatch)
-		after, err := promptAgent(agent.PaneID, prompt)
-		if err != nil {
+	if held {
+		// Busy agent: keep it here until it is free (see delivery.go), so it
+		// can still be cancelled. Nothing is typed yet.
+		s.threads.holdFirst(thread.ID, prompt)
+	} else if autoSubmit {
+		if _, err := promptAgent(agent.PaneID, prompt); err != nil {
+			s.abandon(thread.ID, err)
 			s.sendFailure(w, err, agent.PaneID)
 			return
 		}
-		if after != nil {
-			seed(agent.PaneID, after.Status, after.SessionID)
-		} else {
-			seed(agent.PaneID, "", agent.SessionID)
-		}
 	} else {
+		// Only a widget from before threads sends autoSubmit=false; it still
+		// gets a thread, so the agent's reply has somewhere to go.
+		//
 		// pane.send_text has no agent_blocked guard, so text typed into an
 		// open approval dialog could answer it. Check what we already know
 		// first: racy, but it turns the common case into a clear refusal.
 		if agent.Status == "blocked" {
+			s.threads.drop(thread.ID)
 			s.sendFailure(w, &HerdrError{"agent_blocked", "agent is blocked"}, agent.PaneID)
 			return
 		}
 		if err := pasteText(agent.PaneID, prompt); err != nil {
+			s.abandon(thread.ID, err)
 			s.sendFailure(w, err, agent.PaneID)
 			return
 		}
+	}
+	committed, err := s.threads.commit(thread.ID)
+	if err != nil {
+		committed = thread
 	}
 
 	// Show in herdr's sidebar which page this pane is pointed at. Self-expiring.
@@ -374,8 +462,37 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, 200, map[string]any{
 		"ok": true, "targetAgent": map[string]any{"paneId": agent.PaneID, "session": nullable(agent.SessionID)},
 		"project": project(agent.Cwd), "screenshot": nullable(screenshot), "status": agent.Status,
-		"autoSubmitted": autoSubmit, "stale": res.Stale,
+		"autoSubmitted": autoSubmit, "stale": res.Stale, "thread": view(committed), "held": held,
 	})
+}
+
+// sendNoTarget answers a send that routing could not settle, with the
+// candidates the widget offers in its destination picker.
+func sendNoTarget(w http.ResponseWriter, res Resolution, live []Agent) {
+	message := "No agent found for this project. Open one in herdr inside the project directory, or pin one."
+	if res.Kind == "ambiguous" {
+		message = "Several agents could be working on this project — pick one as the destination."
+	}
+	sendJSON(w, 409, map[string]any{"ok": false, "reason": noMatchReason(res), "error": message,
+		"candidates": entriesAmong(res.Candidates, live), "trace": res.Trace})
+}
+
+// abandon rolls back a thread whose first prompt failed — unless herdr may
+// have typed it anyway (a timeout, a garbled answer), in which case the agent
+// could still reply and the thread has to exist for it.
+func (s *Server) abandon(id string, err error) {
+	if mayHaveTyped(err) {
+		_, _ = s.threads.commit(id)
+		return
+	}
+	s.threads.drop(id)
+}
+
+// mayHaveTyped: herdr failed in a way that does not prove the prompt never
+// reached the terminal.
+func mayHaveTyped(err error) bool {
+	var herr *HerdrError
+	return errors.As(err, &herr) && (herr.Code == "timeout" || herr.Code == "protocol")
 }
 
 func (s *Server) sendFailure(w http.ResponseWriter, err error, paneID string) {

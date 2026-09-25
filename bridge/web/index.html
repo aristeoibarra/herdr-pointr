@@ -5,87 +5,133 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pointr</title>
 <style>
-  body { font: 15px/1.6 ui-sans-serif, system-ui, sans-serif; background: #121212; color: #eee;
-         max-width: 640px; margin: 40px auto; padding: 0 20px; }
-  h1 { color: #d97757; font-size: 22px; }
-  code { background: #1f1f1f; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
-  .bm { display: inline-block; background: #2a2a2a; color: #eee; text-decoration: none;
-        padding: 4px 12px; border-radius: 999px; font-weight: 700; cursor: grab; }
-  ol { padding-left: 20px; } li { margin: 8px 0; }
-  .status { margin-top: 16px; font-size: 13px; }
-  .ok { color: #6ee7a8; } .err { color: #ff8a8a; }
-  .servers { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
-  .servers li { display: flex; align-items: center; gap: 12px; background: #1a1a1a; border: 1px solid #2a2a2a;
-                border-radius: 12px; padding: 10px 14px; }
-  .servers .who { flex: 1; min-width: 0; }
-  .servers .name { font-weight: 700; } .servers .port { color: #999; font-size: 13px; margin-left: 6px; }
-  .servers .dest { font-size: 13px; color: #999; overflow-wrap: anywhere; }
-  .servers .dest.ok { color: #6ee7a8; } .servers .dest.warn { color: #f5c16c; }
-  .servers a.go { background: #d97757; color: #fff; text-decoration: none; border-radius: 999px;
-                  padding: 7px 16px; font-weight: 700; white-space: nowrap; }
-  .muted { color: #999; font-size: 13px; }
-  .open { display: flex; gap: 8px; margin: 10px 0; }
-  .open input { flex: 1; background: #1f1f1f; color: #eee; border: 1px solid #333; border-radius: 8px;
-                padding: 9px 12px; font: inherit; }
-  .open button { background: #d97757; color: #fff; border: 0; border-radius: 999px; padding: 9px 18px;
-                 font: inherit; font-weight: 700; cursor: pointer; }
-  hr { border: none; border-top: 1px solid #2a2a2a; margin: 24px 0; }
-  small { color: #999; }
+  :root {
+    --bg: #0b0b0c; --card: #18181b; --line: #27272a; --line2: #3f3f46;
+    --ink: #fafafa; --ink2: #e4e4e7; --muted: #a1a1aa; --dim: #8e8e96;
+    --ok: #4ade80; --err: #f87171; --warn: #e8b454; --blue: #60a5fa;
+    --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.6 "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 56px auto; padding: 0 20px; display: flex; flex-direction: column; gap: 20px; }
+  header { display: flex; align-items: center; gap: 10px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+  .pill { margin-left: auto; height: 28px; padding: 0 10px; display: inline-flex; align-items: center; gap: 8px;
+          border-radius: 8px; background: var(--card); border: 1px solid var(--line);
+          font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+  .pill .led { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+  .pill.ok .led { background: var(--ok); } .pill.ok .st { color: var(--ink2); }
+  .pill.err .led { background: var(--err); } .pill.err .st { color: #fca5a5; }
+  p { margin: 0; }
+  .intro { color: var(--muted); }
+  .intro strong { color: var(--ink); font-weight: 600; }
+  kbd, code { display: inline-flex; align-items: center; height: 22px; padding: 0 6px; border-radius: 6px;
+              background: var(--card); border: 1px solid var(--line); color: var(--ink2); font: 12px var(--mono); }
+  .note { padding: 12px 14px; border-radius: 12px; background: var(--card); border: 1px solid var(--line2);
+          font-size: 13px; color: var(--muted); }
+  .note b { color: var(--ink2); font: 12.5px var(--mono); }
+  .servers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .servers li { display: flex; align-items: center; gap: 12px; padding: 14px 14px 14px 16px;
+                border-radius: 12px; background: var(--card); border: 1px solid var(--line); }
+  .servers li.empty { display: block; border-style: dashed; border-color: var(--line2); color: var(--muted); font-size: 13.5px; }
+  .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .name { font-weight: 600; }
+  .port { margin-left: 8px; font: 12.5px var(--mono); color: var(--dim); }
+  .dest { font: 12.5px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+  .dest.warn { font-family: inherit; font-size: 13px; color: var(--warn); }
+  .dest.warn code { background: transparent; border: 0; padding: 0; height: auto; color: inherit; }
+  .unread { flex-shrink: 0; height: 26px; padding: 0 10px; display: inline-flex; align-items: center; gap: 7px;
+            border-radius: 999px; background: var(--line); font-size: 12px; color: var(--ink2); white-space: nowrap; }
+  .unread::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+  a.go, .open button { flex-shrink: 0; height: 36px; padding: 0 16px; display: inline-flex; align-items: center;
+                       border-radius: 10px; background: var(--ink); color: #09090b; font-size: 14px; font-weight: 600;
+                       text-decoration: none; border: 0; cursor: pointer; font-family: inherit; }
+  .open { display: flex; gap: 8px; margin: 0; }
+  .open input { flex: 1; min-width: 0; height: 42px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line);
+                background: var(--card); color: var(--ink); font: inherit; font-size: 14px; outline: none; }
+  .open input:focus { border-color: var(--muted); }
+  .open input::placeholder { color: #71717a; }
+  .open button { height: 42px; padding: 0 18px; background: transparent; color: var(--ink); border: 1px solid var(--line2); }
+  hr { margin: 4px 0; border: none; border-top: 1px solid var(--line); }
+  .muted { color: var(--dim); font-size: 13px; }
+  .bm { align-self: flex-start; height: 30px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px;
+        border-radius: 999px; background: var(--line); border: 1px solid var(--line2); color: var(--ink);
+        font-size: 13px; font-weight: 600; text-decoration: none; cursor: grab; }
+  svg { flex-shrink: 0; }
 </style>
 </head>
 <body>
-  <h1>pointr</h1>
-  <p class="muted">Bridge on <code>localhost:{{PORT}}</code> <span id="st" class="status"></span></p>
+<main>
+  <header>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/></svg>
+    <h1>pointr</h1>
+    <span id="st" class="pill"><span>localhost:{{PORT}}</span><span class="led"></span><span class="st">checking…</span></span>
+  </header>
 
-  <p><strong>Your dev servers.</strong> Open one and the widget is already in the page —
-  <code>Alt+C</code>, click an element, describe the change.</p>
-  <ul id="servers" class="servers"><li class="muted">looking…</li></ul>
-  <p id="pinned" class="muted" hidden></p>
+  <p class="intro"><strong>Your dev servers.</strong> Open one and the widget is already on the page. Press
+  <kbd>Alt+C</kbd>, click an element and leave a comment — the agent answers in the thread, next to it.</p>
+
+  <p id="pinned" class="note" hidden></p>
+  <ul id="servers" class="servers"><li class="empty">Looking…</li></ul>
+
   <form action="/open" method="get" class="open">
-    <input name="url" placeholder="Not listed? Type a port or URL" required>
+    <input name="url" placeholder="Not listed? Type a port or URL" aria-label="Port or URL" required>
     <button type="submit">Open</button>
   </form>
 
   <hr>
-  <p class="muted">To keep your app's own URL instead, drag this to your bookmarks bar and
-  click it on the page: <a class="bm" href="javascript:(function(){var d=document;if(d.getElementById('pointr-root'))return;var s=d.createElement('script');s.src='http://localhost:{{PORT}}/widget.js';s.onerror=function(){alert('pointr: bridge not reachable on :{{PORT}}');};d.body.appendChild(s);})();">◎ pointr</a></p>
+  <p class="muted">To keep your app's own URL instead, drag this to your bookmarks bar and click it on the page:</p>
+  <a class="bm" href="javascript:(function(){var d=document;if(d.getElementById('pointr-root'))return;var s=d.createElement('script');s.src='http://localhost:{{PORT}}/widget.js';s.onerror=function(){alert('pointr: bridge not reachable on :{{PORT}}');};d.body.appendChild(s);})();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/></svg>pointr</a>
+</main>
 
 <script>
   const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const status = document.getElementById('st');
+  const setStatus = (ok) => {
+    status.className = 'pill ' + (ok ? 'ok' : 'err');
+    status.querySelector('.st').textContent = ok ? 'connected' : 'offline';
+  };
 
   fetch('/health').then(r=>r.json()).then(d=>{
-    document.getElementById('st').innerHTML = d.ok ? '<span class="ok">● connected</span>' : '';
+    setStatus(d.ok);
     const pinned = document.getElementById('pinned');
     if (d.targetAgent) {
       pinned.hidden = false;
-      pinned.textContent = 'A destination is pinned (' + d.targetAgent.paneId + '): every project sends there until you clear it.';
+      pinned.innerHTML = 'Every project sends to <b>' + esc(d.targetAgent.paneId) + '</b> until you run <b>pointr pin --clear</b>.';
     }
-  }).catch(()=>{ document.getElementById('st').innerHTML='<span class="err">● offline</span>'; });
+  }).catch(()=>setStatus(false));
 
   // Where a server's feedback would land, by the same tiers routing uses —
   // "no agent" is the thing worth seeing before sending, not after.
   function dest(agents, cwd) {
-    if (agents.length === 1) return '<div class="dest ok">→ ' + esc(agents[0].label) + ' · ' + esc(agents[0].status) + '</div>';
-    if (agents.length > 1) return '<div class="dest warn">' + agents.length + ' agents work here — you will be asked which</div>';
-    return '<div class="dest warn">no agent here yet — open one in herdr in ' + esc(cwd) + '</div>';
+    if (agents.length === 1) return '<div class="dest">→ ' + esc(agents[0].label) + ' · ' + esc(agents[0].status) + '</div>';
+    if (agents.length > 1) return '<div class="dest warn">' + agents.length + ' agents work here (' +
+      agents.map((a) => '<code>' + esc(a.kind) + '</code>').join(', ') + ') — you will be asked which</div>';
+    return '<div class="dest warn">No agent here yet — open one in herdr in <code>' + esc(cwd) + '</code></div>';
+  }
+
+  function unread(n) {
+    if (!n) return '';
+    return '<span class="unread">' + n + (n === 1 ? ' new reply' : ' new replies') + '</span>';
   }
 
   function render(servers) {
     const list = document.getElementById('servers');
     if (servers.length === 0) {
-      list.innerHTML = '<li class="muted">No dev server running in a project directory. Start one — <code>npm run dev</code> — and it shows up here.</li>';
+      list.innerHTML = '<li class="empty"><strong>No dev server running in a project folder.</strong> Start one — <code>npm run dev</code> — and it shows up here.</li>';
       return;
     }
     list.innerHTML = servers.map((s) =>
-      '<li><div class="who"><span class="name">' + esc(s.project) + '</span><span class="port">:' + s.port + '</span>' +
-      dest(s.agents, s.cwd) + '</div><a class="go" href="/open?url=' + s.port + '">Open</a></li>'
+      '<li><div class="who"><div><span class="name">' + esc(s.project) + '</span><span class="port">:' + s.port + '</span></div>' +
+      dest(s.agents, s.cwd) + '</div>' + unread(s.unread) + '<a class="go" href="/open?url=' + s.port + '">Open</a></li>'
     ).join('');
   }
 
   // Cheap for the bridge (one procfs pass), and only while this tab is looked at.
   function refresh() {
     if (document.hidden) return;
-    fetch('/servers').then(r=>r.json()).then(d=>render(d.servers || [])).catch(()=>{});
+    fetch('/servers').then(r=>r.json()).then(d=>{ setStatus(true); render(d.servers || []); }).catch(()=>setStatus(false));
   }
   refresh();
   setInterval(refresh, 4000);

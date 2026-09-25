@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -51,8 +52,13 @@ type Element struct {
 	Role           string     `json:"role"`
 	AccessibleName *string    `json:"accessibleName"`
 	Text           string     `json:"text"`
-	Styles         orderedMap `json:"styles"`
-	Box            struct {
+	// Kept with the thread, never shown to the agent: they are how its pin
+	// finds the element again after the page changed (see Anchor).
+	Context string     `json:"context"`
+	Pos     *Pos       `json:"pos"`
+	Peers   []string   `json:"peers"`
+	Styles  orderedMap `json:"styles"`
+	Box     struct {
 		X float64 `json:"x"`
 		Y float64 `json:"y"`
 		W float64 `json:"w"`
@@ -62,8 +68,11 @@ type Element struct {
 }
 
 type SendPayload struct {
-	Message    *string   `json:"message"`
-	URL        *string   `json:"url"`
+	Message *string `json:"message"`
+	URL     *string `json:"url"`
+	// Page key from the widget (path, plus a hash route), the same one it
+	// filters pins by. Derived from the URL when an older widget leaves it out.
+	Page       string    `json:"page"`
 	Elements   []Element `json:"elements"`
 	Screenshot string    `json:"screenshot"`
 	// Absent means true: only an explicit false pastes without submitting.
@@ -82,7 +91,8 @@ func (p SendPayload) valid() bool {
 	return p.Message != nil && p.URL != nil && p.Elements != nil
 }
 
-// formatPrompt renders the agent-facing prompt.
+// formatPrompt renders the agent-facing prompt: the comment, the elements it
+// is about, and how to answer into its thread.
 //
 // Written for what the agent does next — find this in the source and edit it —
 // not for describing the screen. Measured against a real send, 83% of what
@@ -92,15 +102,15 @@ func (p SendPayload) valid() bool {
 // Geometry and computed styles ride along only with a screenshot: ticking it
 // is how someone says "this is a visual problem", the only kind where rendered
 // values beat the class list already in the HTML.
-func formatPrompt(payload SendPayload, pageURL, screenshotPath string) string {
+func formatPrompt(payload SendPayload, pageURL, screenshotPath, threadID, replyCmd string) string {
 	visual := screenshotPath != ""
-	lines := []string{"[pointr] UI change request from the browser", ""}
+	lines := []string{"[pointr] Browser comment · thread " + threadID, ""}
 
 	message := strings.TrimSpace(*payload.Message)
 	if message == "" {
 		message = "(no message provided)"
 	}
-	lines = append(lines, "Request: "+message, "Page: "+pageURL)
+	lines = append(lines, "Comment: "+message, "Page: "+pageURL)
 	if visual {
 		lines = append(lines, "Screenshot: "+screenshotPath)
 	}
@@ -168,7 +178,164 @@ func formatPrompt(payload SendPayload, pageURL, screenshotPath string) string {
 		lines = appendList(lines, "Recent console errors (oldest first):", payload.Diagnostics.Errors)
 		lines = appendList(lines, "Recent failed requests (oldest first):", payload.Diagnostics.Network)
 	}
-	return strings.TrimRight(strings.Join(lines, "\n"), " \t\r\n")
+	lines = append(strings.Split(strings.TrimRight(strings.Join(lines, "\n"), " \t\r\n"), "\n"), replyInstructions(replyCmd)...)
+	return strings.Join(lines, "\n")
+}
+
+// formatFollowUp renders replies the user wrote inside a thread — fresh, one
+// or several held while the agent was busy. The whole thread goes along
+// every time, capped, rather than only the new messages: the pane may have
+// restarted, or the thread moved to another agent, and neither would
+// remember the start of the conversation.
+func formatFollowUp(t Thread, fresh []Message, cmd string) string {
+	lines := []string{"[pointr] Follow-up · thread " + t.ID, "Page: " + t.URL}
+	if about := describeAnchors(t.Anchors); about != "" {
+		lines = append(lines, "About: "+about)
+	}
+	isFresh := map[string]bool{}
+	for _, m := range fresh {
+		isFresh[m.ID] = true
+	}
+	var earlier []Message
+	for _, m := range t.Messages {
+		if !isFresh[m.ID] {
+			earlier = append(earlier, m)
+		}
+	}
+	lines = append(lines, "", "Thread so far, oldest first:")
+	lines = append(lines, historyLines(earlier, 4000)...)
+	lines = append(lines, "", "New from the user:")
+	for _, m := range fresh {
+		lines = append(lines, m.Text)
+	}
+	return strings.Join(append(lines, replyInstructions(cmd)...), "\n")
+}
+
+// describeAnchors names what a thread is about in one line, enough for the
+// agent to find it again: component, source, selector.
+func describeAnchors(anchors []Anchor) string {
+	if len(anchors) == 0 {
+		return ""
+	}
+	a := anchors[0]
+	name := a.Tag
+	if a.ID != "" {
+		name += "#" + a.ID
+	}
+	if a.Component != "" {
+		name = "<" + a.Component + ">"
+	}
+	if a.Framework != "" {
+		name += " (" + a.Framework + ")"
+	}
+	parts := []string{name}
+	if a.Source != "" {
+		parts = append(parts, a.Source)
+	}
+	if a.Selector != "" {
+		parts = append(parts, a.Selector)
+	}
+	out := strings.Join(parts, " — ")
+	if more := len(anchors) - 1; more > 0 {
+		out += fmt.Sprintf(" (+%d more)", more)
+	}
+	return out
+}
+
+// historyLines keeps the first message — what the thread is about — and as
+// many of the newest as fit the budget, noting what was left out between.
+func historyLines(messages []Message, budget int) []string {
+	if len(messages) == 0 {
+		return []string{"(nothing yet)"}
+	}
+	line := func(m Message) string {
+		who := "User"
+		if m.From == "agent" {
+			who = "Agent"
+		}
+		return who + ": " + truncate(m.Text, 1200)
+	}
+	first := line(messages[0])
+	used := len([]rune(first))
+	var tail []string
+	i := len(messages) - 1
+	for ; i >= 1; i-- {
+		l := line(messages[i])
+		if used+len([]rune(l)) > budget {
+			break
+		}
+		used += len([]rune(l))
+		tail = append([]string{l}, tail...)
+	}
+	out := []string{first}
+	if i >= 1 {
+		out = append(out, fmt.Sprintf("(%d earlier messages omitted)", i))
+	}
+	return append(out, tail...)
+}
+
+// replyInstructions end every prompt. The answer goes back to where the user
+// asked, next to the element, and stays short because it reads as a comment.
+// The heredoc delimiter is POINTR, not EOF: a reply quoting a line that says
+// EOF would otherwise be cut there.
+func replyInstructions(cmd string) []string {
+	return []string{
+		"",
+		"When you are done, answer in the browser thread — the user reads it next to the element, not in this terminal:",
+		cmd + " <<'POINTR'",
+		"<2–4 sentences, the answer first>",
+		"POINTR",
+		"- Asked for a change: make it, then reply with what you changed.",
+		"- Asked a question or for your opinion: reply without editing any files.",
+		"- Several pointr comments at once: reply to each thread id separately.",
+	}
+}
+
+// pagePath is the page key within a dev server when the widget did not send
+// one: the path, plus the route when the app routes on the fragment, so a
+// hash-router app does not pile every thread onto "/".
+func pagePath(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "/"
+	}
+	path := u.Path
+	if path == "" {
+		path = "/"
+	}
+	if len(path) > 1 {
+		path = strings.TrimRight(path, "/")
+	}
+	if f := u.Fragment; strings.HasPrefix(f, "/") || strings.HasPrefix(f, "!/") {
+		if i := strings.Index(f, "?"); i >= 0 {
+			f = f[:i]
+		}
+		path += "#" + f
+	}
+	return path
+}
+
+// newThreadFromSend opens a thread for a comment about to be sent to agent.
+func newThreadFromSend(payload SendPayload, upstream string, agent *Agent) Thread {
+	anchors := make([]Anchor, 0, len(payload.Elements))
+	for _, el := range payload.Elements {
+		anchors = append(anchors, anchorFrom(el))
+	}
+	page := payload.Page
+	if page == "" {
+		page = pagePath(upstream)
+	}
+	text := strings.TrimSpace(*payload.Message)
+	if text == "" {
+		text = "(no message provided)"
+	}
+	return Thread{
+		URL: upstream, Port: portOf(upstream), Path: page, Anchors: anchors,
+		Pane: agent.PaneID, AgentKind: agent.Kind,
+		Messages: []Message{{From: "user", Text: clipRunes(text, maxMessageRunes),
+			// Read before the prompt: "working" means it lands in the agent's queue.
+			BusyAtSend: agent.Status == "working"}},
+	}
 }
 
 // The payload crosses the network — only strings are trusted as entries.
